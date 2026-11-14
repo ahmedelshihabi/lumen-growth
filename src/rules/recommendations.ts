@@ -1,5 +1,6 @@
 import type { Channel, CreativeDailyMetric } from '../data/types';
 import { groupBy, rangeEnding } from '../lib/metrics';
+import { fmtMoney } from '../lib/format';
 import { detectAnomalies, DEFAULT_ANOMALY_CONFIG } from './anomalies';
 import { detectFatigue } from './fatigue';
 import { computePacing } from './pacing';
@@ -56,7 +57,8 @@ export const DEFAULT_RECOMMENDATION_CONFIG: RecommendationConfig = {
 };
 
 const DAYS_PER_MONTH = 30;
-const money = (n: number) => `$${Math.round(n).toLocaleString('en-US')}`;
+// Uses the display currency of the loaded accounts (USD in demo, EGP etc. for real Meta accounts).
+const money = (n: number) => fmtMoney(Math.round(n));
 const x = (n: number) => n.toFixed(1);
 
 function priorityFor(monthly: number, forceHigh = false): Priority {
@@ -184,7 +186,8 @@ export function generateRecommendations(
   for (const s of summaries) {
     if (handled.has(s.campaign.id) || s.campaign.status !== 'ACTIVE') continue;
     const p = computePacing(s.campaign, campaignDaily, asOf);
-    if (p.daysRemaining <= 0) continue;
+    // No monthly plan entered (Meta has no monthly budgets): nothing to pace against.
+    if (p.daysRemaining <= 0 || p.monthlyBudget <= 0) continue;
     if (p.status === 'over') {
       const overage = p.projected - p.monthlyBudget;
       if (s.health === 'good') {

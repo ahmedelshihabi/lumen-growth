@@ -3,16 +3,13 @@ import { Card, ChannelBadge, EmptyState, PageHeader, Select, SeverityBadge, Stat
 import { useLoadedApp } from '../state/AppContext';
 import { detectAnomalies, DEFAULT_ANOMALY_CONFIG, type AnomalyType, type Severity } from '../rules/anomalies';
 import { formatShortDate } from '../lib/dates';
+import { useI18n } from '../i18n';
 
-const TYPE_LABEL: Record<AnomalyType, string> = {
-  cpa_spike: 'CPA spike',
-  roas_drop: 'ROAS drop',
-  spend_stopped: 'Spend stopped',
-  high_frequency: 'High frequency',
-};
+const TYPES: AnomalyType[] = ['cpa_spike', 'roas_drop', 'spend_stopped', 'high_frequency'];
 
 export default function Alerts() {
   const { rulesInput } = useLoadedApp();
+  const { t } = useI18n();
   const [severity, setSeverity] = useState<'all' | Severity>('all');
   const [type, setType] = useState<'all' | AnomalyType>('all');
 
@@ -23,42 +20,42 @@ export default function Alerts() {
 
   return (
     <>
-      <PageHeader title="Alerts" subtitle={`Rule-based anomaly detection · data through ${formatShortDate(rulesInput.asOf)}`} />
+      <PageHeader title={t('nav.alerts')} subtitle={t('alerts.subtitle', { date: formatShortDate(rulesInput.asOf) })} />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Critical" value={count('critical')} tone={count('critical') ? 'red' : undefined} />
-        <StatCard label="High" value={count('high')} tone={count('high') ? 'red' : undefined} />
-        <StatCard label="Medium" value={count('medium')} tone={count('medium') ? 'amber' : undefined} />
-        <StatCard label="Campaigns affected" value={new Set(all.map((a) => a.campaignId)).size} />
+        <StatCard label={t('severity.critical')} value={count('critical')} tone={count('critical') ? 'red' : undefined} />
+        <StatCard label={t('severity.high')} value={count('high')} tone={count('high') ? 'red' : undefined} />
+        <StatCard label={t('severity.medium')} value={count('medium')} tone={count('medium') ? 'amber' : undefined} />
+        <StatCard label={t('alerts.campaignsAffected')} value={new Set(all.map((a) => a.campaignId)).size} />
       </div>
 
       <Card
         className="mt-4"
-        title={`${shown.length} alert${shown.length === 1 ? '' : 's'}`}
+        title={t('alerts.count', { n: shown.length })}
         action={
           <div className="flex flex-wrap gap-2">
             <Select
-              label="Severity"
+              label={t('alerts.severity')}
               value={severity}
               onChange={setSeverity}
               options={[
-                { value: 'all', label: 'All severities' },
-                { value: 'critical', label: 'Critical' },
-                { value: 'high', label: 'High' },
-                { value: 'medium', label: 'Medium' },
+                { value: 'all', label: t('alerts.allSeverities') },
+                { value: 'critical', label: t('severity.critical') },
+                { value: 'high', label: t('severity.high') },
+                { value: 'medium', label: t('severity.medium') },
               ]}
             />
             <Select
-              label="Type"
+              label={t('alerts.type')}
               value={type}
               onChange={setType}
-              options={[{ value: 'all', label: 'All types' }, ...Object.entries(TYPE_LABEL).map(([value, label]) => ({ value: value as AnomalyType, label }))]}
+              options={[{ value: 'all', label: t('alerts.allTypes') }, ...TYPES.map((value) => ({ value, label: t(`anomaly.${value}`) }))]}
             />
           </div>
         }
       >
         {shown.length === 0 ? (
-          <EmptyState>No alerts match these filters.</EmptyState>
+          <EmptyState>{t('common.noMatch')}</EmptyState>
         ) : (
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {shown.map((a) => (
@@ -68,10 +65,10 @@ export default function Alerts() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-sm font-semibold">{a.title}</span>
-                    <span className="text-xs text-zinc-500 dark:text-zinc-400">{TYPE_LABEL[a.type]}</span>
+                    <span className="text-sm font-semibold" dir="auto">{a.title}</span>
+                    <span className="text-xs text-zinc-500 dark:text-zinc-400">{t(`anomaly.${a.type}`)}</span>
                   </div>
-                  <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-300">{a.detail}</p>
+                  <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-300" dir="auto">{a.detail}</p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
                     <ChannelBadge channel={a.channel} />
                     <span className="truncate">{a.campaignName}</span>
@@ -86,13 +83,13 @@ export default function Alerts() {
         )}
       </Card>
 
-      <Card className="mt-4" title="Active rules">
+      <Card className="mt-4" title={t('alerts.activeRules')}>
         <ul className="grid gap-px overflow-hidden rounded-b-xl bg-zinc-100 text-sm dark:bg-zinc-800 sm:grid-cols-2">
           {[
-            ['CPA spike', `CPA up more than ${cfg.cpaSpikePct * 100}% day over day (prior day ≥ ${cfg.minConversions} conversions), last ${cfg.lookbackDays} days.`],
-            ['ROAS drop', `Last ${cfg.roasRecentDays}-day ROAS down more than ${cfg.roasDropPct * 100}% vs the ${cfg.roasBaselineDays} days before.`],
-            ['Spend stopped', 'A non-paused campaign with $0 spend on the latest day after spending ≥ $50/day.'],
-            ['High frequency', `Latest 7-day frequency above ${cfg.frequencyMax}.`],
+            [t('anomaly.cpa_spike'), t('alerts.rule.cpa', { pct: cfg.cpaSpikePct * 100, min: cfg.minConversions, days: cfg.lookbackDays })],
+            [t('anomaly.roas_drop'), t('alerts.rule.roas', { recent: cfg.roasRecentDays, pct: cfg.roasDropPct * 100, base: cfg.roasBaselineDays })],
+            [t('anomaly.spend_stopped'), t('alerts.rule.stopped')],
+            [t('anomaly.high_frequency'), t('alerts.rule.freq', { max: cfg.frequencyMax })],
           ].map(([name, desc]) => (
             <li key={name} className="bg-white p-4 dark:bg-zinc-900">
               <div className="font-medium">{name}</div>

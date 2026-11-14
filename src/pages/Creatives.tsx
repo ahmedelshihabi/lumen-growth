@@ -3,6 +3,7 @@ import { Line, LineChart, ResponsiveContainer, YAxis } from 'recharts';
 import { Card, ChannelBadge, EmptyState, PageHeader, RangePicker, Select, cx, healthText } from '../components/ui';
 import { IconPlay } from '../components/icons';
 import { useLoadedApp } from '../state/AppContext';
+import { useI18n } from '../i18n';
 import { aggregate, filterRange, groupBy, rangeEnding, safeDiv } from '../lib/metrics';
 import { addDays } from '../lib/dates';
 import { fmtMoney, fmtMoney2, fmtPct, fmtSignedPct } from '../lib/format';
@@ -11,11 +12,11 @@ import { metricHealth } from '../rules/health';
 import { targetFor } from '../rules/types';
 import type { Channel, Creative } from '../data/types';
 
-const FATIGUE: Record<FatigueStatus, { label: string; cls: string }> = {
-  fatigued: { label: 'Fatigued', cls: 'bg-red-600 text-white' },
-  watch: { label: 'Watch', cls: 'bg-amber-400 text-amber-950' },
-  healthy: { label: 'Healthy', cls: 'bg-emerald-600 text-white' },
-  insufficient: { label: 'Low data', cls: 'bg-zinc-600 text-white' },
+const FATIGUE: Record<FatigueStatus, { cls: string }> = {
+  fatigued: { cls: 'bg-red-600 text-white' },
+  watch: { cls: 'bg-amber-400 text-amber-950' },
+  healthy: { cls: 'bg-emerald-600 text-white' },
+  insufficient: { cls: 'bg-zinc-600 text-white' },
 };
 
 type SortKey = 'spend' | 'cpa' | 'ctr' | 'hook' | 'fatigue';
@@ -29,11 +30,11 @@ function Tile({ c }: { c: Creative }) {
       aria-hidden
     >
       <div className="absolute inset-0 opacity-25 [background-image:radial-gradient(circle_at_20%_20%,#fff_0,transparent_45%)]" />
-      <span className="absolute left-3 top-3 rounded bg-black/35 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white backdrop-blur">
+      <span className="absolute start-3 top-3 rounded bg-black/35 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white backdrop-blur">
         {c.format}
       </span>
       {c.format === 'video' && (
-        <span className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white/85 text-zinc-900">
+        <span className="absolute end-3 top-3 flex h-7 w-7 items-center justify-center rounded-full bg-white/85 text-zinc-900">
           <IconPlay width={14} height={14} />
         </span>
       )}
@@ -44,6 +45,8 @@ function Tile({ c }: { c: Creative }) {
 
 export default function Creatives() {
   const { data, rangeDays, targets, theme } = useLoadedApp();
+  const { t: tr } = useI18n();
+  const t = tr;
   const [channel, setChannel] = useState<'all' | Channel>('all');
   const [fatigue, setFatigue] = useState<'all' | FatigueStatus>('all');
   const [sort, setSort] = useState<SortKey>('fatigue');
@@ -108,51 +111,51 @@ export default function Creatives() {
   return (
     <>
       <PageHeader
-        title="Creative analytics"
-        subtitle={`Last ${rangeDays} days · fatigue = frequency up ≥15% while CTR down ≥15%, last 7 days vs prior 7 · ${counts.fatigued ?? 0} fatigued, ${counts.watch ?? 0} to watch`}
+        title={t('creatives.title')}
+        subtitle={`${t('creatives.subtitle', { n: cards.filter((c) => c.totals.spend > 0).length, days: rangeDays })} · ${t('fatigue.fatigued')} ${counts.fatigued ?? 0} · ${t('fatigue.watch')} ${counts.watch ?? 0}`}
         actions={<RangePicker />}
       />
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Select
-          label="Channel"
+          label={t('common.channel')}
           value={channel}
           onChange={setChannel}
           options={[
-            { value: 'all', label: 'All channels' },
+            { value: 'all', label: t('common.allChannels') },
             { value: 'meta', label: 'Meta' },
             { value: 'google', label: 'Google' },
             { value: 'tiktok', label: 'TikTok' },
           ]}
         />
         <Select
-          label="Fatigue"
+          label={t('creatives.anyFatigue')}
           value={fatigue}
           onChange={setFatigue}
           options={[
-            { value: 'all', label: 'Any fatigue state' },
-            { value: 'fatigued', label: 'Fatigued' },
-            { value: 'watch', label: 'Watch' },
-            { value: 'healthy', label: 'Healthy' },
+            { value: 'all', label: t('creatives.anyFatigue') },
+            { value: 'fatigued', label: t('fatigue.fatigued') },
+            { value: 'watch', label: t('fatigue.watch') },
+            { value: 'healthy', label: t('fatigue.healthy') },
           ]}
         />
         <Select
-          label="Sort by"
+          label={t('creatives.sortBy')}
           value={sort}
           onChange={setSort}
           options={[
-            { value: 'fatigue', label: 'Sort: fatigue first' },
-            { value: 'spend', label: 'Sort: spend' },
-            { value: 'cpa', label: 'Sort: lowest CPA' },
-            { value: 'ctr', label: 'Sort: highest CTR' },
-            { value: 'hook', label: 'Sort: hook rate' },
+            { value: 'fatigue', label: t('creatives.sort.fatigue') },
+            { value: 'spend', label: t('creatives.sort.spend') },
+            { value: 'cpa', label: t('creatives.sort.cpa') },
+            { value: 'ctr', label: t('creatives.sort.ctr') },
+            { value: 'hook', label: t('creatives.sort.hook') },
           ]}
         />
       </div>
 
       {shown.length === 0 ? (
         <Card>
-          <EmptyState>No creatives match these filters.</EmptyState>
+          <EmptyState>{t('common.noMatch')}</EmptyState>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -160,8 +163,8 @@ export default function Creatives() {
             <Card key={c.id} className="flex flex-col overflow-hidden">
               <div className="relative">
                 <Tile c={c} />
-                <span className={cx('absolute bottom-3 right-3 rounded-full px-2 py-0.5 text-[11px] font-semibold shadow', FATIGUE[f.status].cls)}>
-                  {FATIGUE[f.status].label}
+                <span className={cx('absolute bottom-3 end-3 rounded-full px-2 py-0.5 text-[11px] font-semibold shadow', FATIGUE[f.status].cls)}>
+                  {tr(`fatigue.${f.status}`)}
                 </span>
               </div>
               <div className="flex flex-1 flex-col p-4">
@@ -177,7 +180,7 @@ export default function Creatives() {
 
                 <dl className="mt-3 grid grid-cols-3 gap-2 text-center">
                   <div className="rounded-lg bg-zinc-50 py-2 dark:bg-zinc-800/60">
-                    <dt className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Hook</dt>
+                    <dt className="text-[10px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{tr('creatives.hook')}</dt>
                     <dd className="text-sm font-semibold tabular-nums">{hookRate === null ? '-' : fmtPct(hookRate, 1)}</dd>
                   </div>
                   <div className="rounded-lg bg-zinc-50 py-2 dark:bg-zinc-800/60">
@@ -193,11 +196,11 @@ export default function Creatives() {
                 </dl>
 
                 <div className="mt-3 flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-400">
-                  <span>Spend {fmtMoney(t.spend)}</span>
-                  <span>Freq. {f.recentFrequency > 0 ? f.recentFrequency.toFixed(1) : '-'}</span>
+                  <span>{tr('common.spend')} {fmtMoney(t.spend)}</span>
+                  <span>{tr('creatives.freq', { v: f.recentFrequency > 0 ? f.recentFrequency.toFixed(1) : '-' })}</span>
                 </div>
 
-                <div className="mt-2 h-12" aria-label="CTR (solid) and frequency (dashed), indexed to 21 days ago" role="img">
+                <div className="mt-2 h-12" aria-label="CTR (solid) and frequency (dashed), indexed to 21 days ago" role="img" dir="ltr">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={spark} margin={{ top: 4, right: 2, bottom: 4, left: 2 }}>
                       <YAxis hide domain={['dataMin - 5', 'dataMax + 5']} />
@@ -208,15 +211,15 @@ export default function Creatives() {
                 </div>
                 <div className="mt-1 flex justify-between text-[11px] tabular-nums">
                   <span className="text-zinc-500 dark:text-zinc-400">
-                    <span className="mr-1 inline-block h-0.5 w-3 align-middle" style={{ background: lineColor }} />
-                    CTR WoW{' '}
+                    <span className="me-1 inline-block h-0.5 w-3 align-middle" style={{ background: lineColor }} />
+                    {tr('creatives.ctrWow')}{' '}
                     <span className={f.ctrChange <= -0.15 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-zinc-700 dark:text-zinc-300'}>
                       {fmtSignedPct(f.ctrChange, 0)}
                     </span>
                   </span>
                   <span className="text-zinc-500 dark:text-zinc-400">
-                    <span className="mr-1 inline-block w-3 border-t-2 border-dashed align-middle" style={{ borderColor: freqColor }} />
-                    Freq. WoW{' '}
+                    <span className="me-1 inline-block w-3 border-t-2 border-dashed align-middle" style={{ borderColor: freqColor }} />
+                    {tr('creatives.freqWow')}{' '}
                     <span className={f.frequencyChange >= 0.15 ? 'font-semibold text-red-600 dark:text-red-400' : 'text-zinc-700 dark:text-zinc-300'}>
                       {fmtSignedPct(f.frequencyChange, 0)}
                     </span>

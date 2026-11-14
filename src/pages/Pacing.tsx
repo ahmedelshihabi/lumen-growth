@@ -6,12 +6,14 @@ import { fmtMoney } from '../lib/format';
 import { formatMonth } from '../lib/dates';
 import { CHANNEL_LABEL, channelColor } from '../lib/colors';
 import type { Campaign, Channel } from '../data/types';
+import { Link } from '../lib/router';
+import { useI18n } from '../i18n';
 
-const STATUS: Record<PacingStatus, { label: string; cls: string }> = {
-  over: { label: 'Over-pacing', cls: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/30' },
-  under: { label: 'Under-pacing', cls: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/30' },
-  on_track: { label: 'On track', cls: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/30' },
-  paused: { label: 'Paused', cls: 'bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-600/30' },
+const STATUS: Record<PacingStatus, { cls: string }> = {
+  over: { cls: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/30' },
+  under: { cls: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/30' },
+  on_track: { cls: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/30' },
+  paused: { cls: 'bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-600/30' },
 };
 
 function PacingBar({ p, color }: { p: { monthlyBudget: number; mtdSpend: number; projected: number; expectedToDate: number }; color: string }) {
@@ -19,20 +21,24 @@ function PacingBar({ p, color }: { p: { monthlyBudget: number; mtdSpend: number;
   const w = (n: number) => `${Math.min(100, (n / max) * 100)}%`;
   return (
     <div className="relative h-2.5 w-full rounded-full bg-zinc-100 dark:bg-zinc-800" role="img" aria-label={`Spent ${fmtMoney(p.mtdSpend)}, projected ${fmtMoney(p.projected)} of ${fmtMoney(p.monthlyBudget)}`}>
-      <div className="absolute inset-y-0 left-0 rounded-full opacity-30" style={{ width: w(p.projected), background: color }} />
-      <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: w(p.mtdSpend), background: color }} />
-      <div className="absolute -inset-y-1 w-0.5 rounded bg-zinc-900 dark:bg-zinc-100" style={{ left: w(p.monthlyBudget) }} title="Monthly budget" />
-      <div className="absolute -inset-y-0.5 w-px bg-zinc-400 dark:bg-zinc-500" style={{ left: w(p.expectedToDate) }} title="Expected spend to date" />
+      <div className="absolute inset-y-0 start-0 rounded-full opacity-30" style={{ width: w(p.projected), background: color }} />
+      <div className="absolute inset-y-0 start-0 rounded-full" style={{ width: w(p.mtdSpend), background: color }} />
+      <div className="absolute -inset-y-1 w-0.5 rounded bg-zinc-900 dark:bg-zinc-100" style={{ insetInlineStart: w(p.monthlyBudget) }} title="Monthly budget" />
+      <div className="absolute -inset-y-0.5 w-px bg-zinc-400 dark:bg-zinc-500" style={{ insetInlineStart: w(p.expectedToDate) }} title="Expected spend to date" />
     </div>
   );
 }
 
 export default function Pacing() {
   const { data, theme } = useLoadedApp();
+  const { t } = useI18n();
+  // Campaigns without a monthly plan (Meta has none) cannot be paced: they are listed as missing.
+  const missing = data.campaigns.filter((c) => !(c.monthlyBudget > 0)).length;
 
   const rows = useMemo(
     () =>
       data.campaigns
+        .filter((c) => c.monthlyBudget > 0)
         .map((c) => ({ campaign: c, p: computePacing(c, data.campaignDaily, data.asOf) }))
         .sort((a, b) => Math.abs(b.p.pacing - 1) - Math.abs(a.p.pacing - 1)),
     [data],
@@ -59,26 +65,46 @@ export default function Pacing() {
   const over = rows.filter((r) => r.p.status === 'over').length;
   const under = rows.filter((r) => r.p.status === 'under').length;
 
+  const day = Number(data.asOf.slice(8, 10));
+  const header = (
+    <PageHeader
+      title={t('nav.pacing')}
+      subtitle={t('pacing.subtitle', { month: formatMonth(data.asOf), day: first?.daysElapsed ?? day, total: (first?.daysElapsed ?? 0) + (first?.daysRemaining ?? 0) || day })}
+      actions={
+        <Link href="/app/settings" className="rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
+          {t('pacing.setBudgets')}
+        </Link>
+      }
+    />
+  );
+
+  if (rows.length === 0) {
+    return (
+      <>
+        {header}
+        <Card className="p-6 text-sm text-zinc-600 dark:text-zinc-300">{t('pacing.noBudgets')}</Card>
+      </>
+    );
+  }
+
   return (
     <>
-      <PageHeader
-        title="Budget pacing"
-        subtitle={`${formatMonth(data.asOf)} · day ${first?.daysElapsed} of ${(first?.daysElapsed ?? 0) + (first?.daysRemaining ?? 0)} · projection = month-to-date + 7-day run rate × days left`}
-      />
+      {header}
+      {missing > 0 && <p className="-mt-2 mb-4 text-xs text-zinc-500 dark:text-zinc-400">{t('pacing.missingBudgets', { n: missing })}</p>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Monthly budget" value={fmtMoney(total.budget)} />
-        <StatCard label="Spent to date" value={fmtMoney(total.mtd)} sub={`${Math.round((total.mtd / (total.budget || 1)) * 100)}% of budget`} />
+        <StatCard label={t('pacing.monthlyBudget')} value={fmtMoney(total.budget)} />
+        <StatCard label={t('pacing.spentToDate')} value={fmtMoney(total.mtd)} sub={t('pacing.ofBudget', { pct: Math.round((total.mtd / (total.budget || 1)) * 100) })} />
         <StatCard
-          label="Projected month-end"
+          label={t('pacing.projected')}
           value={fmtMoney(total.projected)}
-          sub={`${total.projected >= total.budget ? '+' : ''}${fmtMoney(total.projected - total.budget)} vs plan`}
+          sub={t('pacing.vsPlan', { diff: `${total.projected >= total.budget ? '+' : ''}${fmtMoney(total.projected - total.budget)}` })}
           tone={total.projected > total.budget * 1.1 ? 'red' : total.projected < total.budget * 0.9 ? 'amber' : 'green'}
         />
-        <StatCard label="Flags" value={`${over + under}`} sub={`${over} over · ${under} under`} tone={over + under > 0 ? 'amber' : 'green'} />
+        <StatCard label={t('pacing.flags')} value={`${over + under}`} sub={t('pacing.flagsSub', { over, under })} tone={over + under > 0 ? 'amber' : 'green'} />
       </div>
 
-      <Card className="mt-4" title="By channel">
+      <Card className="mt-4" title={t('pacing.byChannel')}>
         <div className="grid gap-4 p-4 md:grid-cols-3">
           {[...byChannel.entries()].map(([ch, c]) => {
             const pct = c.projected / (c.budget || 1);
@@ -96,14 +122,14 @@ export default function Pacing() {
           })}
         </div>
         <div className="flex flex-wrap gap-x-4 gap-y-1 border-t border-zinc-100 px-4 py-2 text-[11px] text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-4 rounded-full bg-zinc-500" /> Spent to date</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-4 rounded-full bg-zinc-500/30" /> Projected</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-3 w-0.5 bg-zinc-900 dark:bg-zinc-100" /> Monthly budget</span>
-          <span className="inline-flex items-center gap-1.5"><span className="h-3 w-px bg-zinc-400" /> Expected to date</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-4 rounded-full bg-zinc-500" /> {t('pacing.legendSpent')}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-2 w-4 rounded-full bg-zinc-500/30" /> {t('pacing.legendProjected')}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-3 w-0.5 bg-zinc-900 dark:bg-zinc-100" /> {t('pacing.legendBudget')}</span>
+          <span className="inline-flex items-center gap-1.5"><span className="h-3 w-px bg-zinc-400" /> {t('pacing.legendExpected')}</span>
         </div>
       </Card>
 
-      <Card className="mt-4" title="By campaign">
+      <Card className="mt-4" title={t('pacing.byCampaign')}>
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
           {rows.map(({ campaign, p }) => (
             <PacingRow key={campaign.id} campaign={campaign} p={p} color={channelColor(theme, campaign.channel)} />
@@ -115,6 +141,7 @@ export default function Pacing() {
 }
 
 function PacingRow({ campaign, p, color }: { campaign: Campaign; p: PacingResult; color: string }) {
+  const { t } = useI18n();
   const s = STATUS[p.status];
   const diff = p.projected - p.monthlyBudget;
   return (
@@ -130,21 +157,19 @@ function PacingRow({ campaign, p, color }: { campaign: Campaign; p: PacingResult
       <div>
         <PacingBar p={p} color={color} />
         <div className="mt-1.5 flex flex-wrap justify-between gap-x-3 text-[11px] tabular-nums text-zinc-500 dark:text-zinc-400">
-          <span>Spent {fmtMoney(p.mtdSpend)}</span>
-          <span>Run rate {fmtMoney(p.runRate)}/day</span>
-          <span>
-            Projected {fmtMoney(p.projected)} of {fmtMoney(p.monthlyBudget)}
-          </span>
+          <span>{t('pacing.spent', { v: fmtMoney(p.mtdSpend) })}</span>
+          <span>{t('pacing.runRate', { v: fmtMoney(p.runRate) })}</span>
+          <span>{t('pacing.projectedOf', { p: fmtMoney(p.projected), b: fmtMoney(p.monthlyBudget) })}</span>
         </div>
       </div>
       <div className="flex items-center gap-3 md:flex-col md:items-end md:gap-1">
         <span className={cx('inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', s.cls)}>
-          {s.label} {p.status !== 'paused' && `${Math.round(p.pacing * 100)}%`}
+          {t(`pacing.${p.status}`)} {p.status !== 'paused' && `${Math.round(p.pacing * 100)}%`}
         </span>
         {(p.status === 'over' || p.status === 'under') && (
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
             {diff > 0 ? '+' : ''}
-            {fmtMoney(diff)} · aim for {fmtMoney(p.recommendedDaily)}/day
+            {fmtMoney(diff)} · {t('pacing.aimFor', { v: fmtMoney(p.recommendedDaily) })}
           </span>
         )}
       </div>

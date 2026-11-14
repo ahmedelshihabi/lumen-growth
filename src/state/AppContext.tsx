@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Dataset } from '../data/types';
-import { loadDataset } from '../data/source';
+import { loadDataset, type DataSource } from '../data/source';
+import { setDisplayCurrency } from '../lib/format';
 import { DEFAULT_TARGETS } from '../rules/targets';
 import type { RulesInput, TargetsByAccount } from '../rules/types';
 
@@ -29,7 +30,10 @@ function write(key: string, value: string) {
 }
 
 interface AppState {
+  source: DataSource;
   data: Dataset | null;
+  /** Re-read everything from the source (after a sync or a budget edit). */
+  reload: () => void;
   error: string | null;
   rangeDays: RangeDays;
   setRangeDays: (d: RangeDays) => void;
@@ -49,8 +53,10 @@ function initialTheme(): Theme {
   return 'light';
 }
 
-export function AppProvider({ children }: { children: ReactNode }) {
+export function AppProvider({ children, source }: { children: ReactNode; source: DataSource }) {
   const [data, setData] = useState<Dataset | null>(null);
+  const [version, setVersion] = useState(0);
+  const reload = useCallback(() => setVersion((v) => v + 1), []);
   const [error, setError] = useState<string | null>(null);
   const [rangeDays, setRange] = useState<RangeDays>(() => {
     const v = Number(readJSON<number>(RANGE_KEY, 30));
@@ -64,13 +70,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let alive = true;
-    loadDataset()
-      .then((d) => alive && setData(d))
+    setError(null);
+    loadDataset(source)
+      .then((d) => {
+        if (!alive) return;
+        if (d.accounts[0]) setDisplayCurrency(d.accounts[0].currency);
+        setData(d);
+      })
       .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [source, version]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
@@ -120,8 +131,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AppState>(
-    () => ({ data, error, rangeDays, setRangeDays, targets, setTargets, resetTargets, theme, toggleTheme, rulesInput }),
-    [data, error, rangeDays, setRangeDays, targets, setTargets, resetTargets, theme, toggleTheme, rulesInput],
+    () => ({ source, data, reload, error, rangeDays, setRangeDays, targets, setTargets, resetTargets, theme, toggleTheme, rulesInput }),
+    [source, data, reload, error, rangeDays, setRangeDays, targets, setTargets, resetTargets, theme, toggleTheme, rulesInput],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

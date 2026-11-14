@@ -7,6 +7,8 @@ import { fmtMoney, fmtMoney2, fmtPct, fmtRoas } from '../lib/format';
 import { summarizeCampaigns, type CampaignSummary } from '../rules/summary';
 import { metricHealth, type Health } from '../rules/health';
 import type { CampaignStatus, Channel } from '../data/types';
+import { useI18n } from '../i18n';
+import type { DictKey } from '../i18n/dict';
 
 type SortKey = 'name' | 'status' | 'budget' | 'spend' | 'revenue' | 'roas' | 'cpa' | 'ctr' | 'frequency' | 'health';
 
@@ -37,21 +39,22 @@ const value = (s: CampaignSummary, k: SortKey): number | string => {
   }
 };
 
-const COLUMNS: { key: SortKey; label: string; align?: 'right'; className?: string }[] = [
-  { key: 'name', label: 'Campaign' },
-  { key: 'status', label: 'Status' },
-  { key: 'budget', label: 'Budget/day', align: 'right' },
-  { key: 'spend', label: 'Spend', align: 'right' },
-  { key: 'revenue', label: 'Revenue', align: 'right' },
-  { key: 'roas', label: 'ROAS', align: 'right' },
-  { key: 'cpa', label: 'CPA', align: 'right' },
-  { key: 'ctr', label: 'CTR', align: 'right' },
-  { key: 'frequency', label: 'Freq.', align: 'right' },
-  { key: 'health', label: 'Health' },
+const COLUMNS: { key: SortKey; label: DictKey; align?: 'right'; className?: string }[] = [
+  { key: 'name', label: 'campaigns.col.name' },
+  { key: 'status', label: 'common.status' },
+  { key: 'budget', label: 'campaigns.col.budget', align: 'right' },
+  { key: 'spend', label: 'common.spend', align: 'right' },
+  { key: 'revenue', label: 'common.revenue', align: 'right' },
+  { key: 'roas', label: 'metric.roas', align: 'right' },
+  { key: 'cpa', label: 'metric.cpa', align: 'right' },
+  { key: 'ctr', label: 'metric.ctr', align: 'right' },
+  { key: 'frequency', label: 'campaigns.col.freq', align: 'right' },
+  { key: 'health', label: 'campaigns.col.health' },
 ];
 
 export default function Campaigns() {
   const { data, rangeDays, targets } = useLoadedApp();
+  const { t } = useI18n();
   const [query, setQuery] = useState('');
   const [channel, setChannel] = useState<'all' | Channel>('all');
   const [status, setStatus] = useState<'all' | CampaignStatus>('all');
@@ -88,8 +91,8 @@ export default function Campaigns() {
   return (
     <>
       <PageHeader
-        title="Campaigns"
-        subtitle={`${summaries.length} campaigns across Meta, Google and TikTok · last ${rangeDays} days · health vs account goals`}
+        title={t('nav.campaigns')}
+        subtitle={t('campaigns.subtitle', { n: summaries.length, days: rangeDays })}
         actions={<RangePicker />}
       />
 
@@ -99,45 +102,45 @@ export default function Campaigns() {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search campaigns"
-            aria-label="Search campaigns"
+            placeholder={t('campaigns.search')}
+            aria-label={t('campaigns.search')}
             className="h-9 w-full min-w-0 rounded-lg border border-zinc-200 bg-white px-3 text-sm placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-zinc-700 dark:bg-zinc-900 sm:w-64"
           />
           <Select
-            label="Channel"
+            label={t('common.channel')}
             value={channel}
             onChange={setChannel}
             options={[
-              { value: 'all', label: 'All channels' },
+              { value: 'all', label: t('common.allChannels') },
               { value: 'meta', label: 'Meta' },
               { value: 'google', label: 'Google' },
               { value: 'tiktok', label: 'TikTok' },
             ]}
           />
           <Select
-            label="Status"
+            label={t('common.status')}
             value={status}
             onChange={setStatus}
             options={[
-              { value: 'all', label: 'Any status' },
-              { value: 'ACTIVE', label: 'Active' },
-              { value: 'LEARNING', label: 'Learning' },
-              { value: 'PAUSED', label: 'Paused' },
+              { value: 'all', label: t('campaigns.anyStatus') },
+              { value: 'ACTIVE', label: t('status.ACTIVE') },
+              { value: 'LEARNING', label: t('status.LEARNING') },
+              { value: 'PAUSED', label: t('status.PAUSED') },
             ]}
           />
           <Select
-            label="Health"
+            label={t('campaigns.col.health')}
             value={health}
             onChange={setHealth}
             options={[
-              { value: 'all', label: 'Any health' },
-              { value: 'good', label: 'On target' },
-              { value: 'warning', label: 'Near target' },
-              { value: 'critical', label: 'Off target' },
-              { value: 'inactive', label: 'No delivery' },
+              { value: 'all', label: t('campaigns.anyHealth') },
+              { value: 'good', label: t('health.good') },
+              { value: 'warning', label: t('health.warning') },
+              { value: 'critical', label: t('health.critical') },
+              { value: 'inactive', label: t('health.inactive') },
             ]}
           />
-          <span className="ml-auto text-xs text-zinc-500 dark:text-zinc-400">{rows.length} shown</span>
+          <span className="ms-auto text-xs text-zinc-500 dark:text-zinc-400">{t('common.shown', { n: rows.length })}</span>
         </div>
 
         <div className="overflow-x-auto">
@@ -151,13 +154,13 @@ export default function Campaigns() {
                       key={c.key}
                       scope="col"
                       aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
-                      className={cx('px-3 py-2.5 font-medium', c.align === 'right' ? 'text-right' : 'text-left', c.key === 'name' && 'pl-4')}
+                      className={cx('px-3 py-2.5 font-medium', c.align === 'right' ? 'text-end' : 'text-start', c.key === 'name' && 'ps-4')}
                     >
                       <button
                         onClick={() => toggleSort(c.key)}
                         className={cx('inline-flex items-center gap-1 uppercase hover:text-zinc-900 dark:hover:text-zinc-100', active && 'text-zinc-900 dark:text-zinc-100')}
                       >
-                        {c.label}
+                        {t(c.label)}
                         {active ? sort.dir === 'asc' ? <IconArrowUp /> : <IconArrowDown /> : <IconSort className="opacity-40" />}
                       </button>
                     </th>
@@ -171,7 +174,7 @@ export default function Campaigns() {
                 const active = t.spend > 0;
                 return (
                   <tr key={s.campaign.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
-                    <td className="max-w-[280px] py-2.5 pl-4 pr-3">
+                    <td className="max-w-[280px] py-2.5 ps-4 pe-3">
                       <div className="truncate font-medium text-zinc-900 dark:text-zinc-100" title={s.campaign.name}>
                         {s.campaign.name}
                       </div>
@@ -183,17 +186,17 @@ export default function Campaigns() {
                     <td className="px-3 py-2.5">
                       <StatusBadge status={s.campaign.status} />
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoney(s.campaign.dailyBudget)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoney(t.spend)}</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{fmtMoney(t.revenue)}</td>
-                    <td className={cx('px-3 py-2.5 text-right font-medium tabular-nums', active && healthText(metricHealth(t.roas, s.target.targetRoas, true)))}>
+                    <td className="px-3 py-2.5 text-end tabular-nums">{fmtMoney(s.campaign.dailyBudget)}</td>
+                    <td className="px-3 py-2.5 text-end tabular-nums">{fmtMoney(t.spend)}</td>
+                    <td className="px-3 py-2.5 text-end tabular-nums">{fmtMoney(t.revenue)}</td>
+                    <td className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && healthText(metricHealth(t.roas, s.target.targetRoas, true)))}>
                       {active ? fmtRoas(t.roas) : '-'}
                     </td>
-                    <td className={cx('px-3 py-2.5 text-right font-medium tabular-nums', active && healthText(metricHealth(t.cpa, s.target.targetCpa, false)))}>
+                    <td className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && healthText(metricHealth(t.cpa, s.target.targetCpa, false)))}>
                       {active && t.conversions > 0 ? fmtMoney2(t.cpa) : '-'}
                     </td>
-                    <td className="px-3 py-2.5 text-right tabular-nums">{active ? fmtPct(t.ctr) : '-'}</td>
-                    <td className={cx('px-3 py-2.5 text-right tabular-nums', s.frequency > 4 && 'font-medium text-red-600 dark:text-red-400')}>
+                    <td className="px-3 py-2.5 text-end tabular-nums">{active ? fmtPct(t.ctr) : '-'}</td>
+                    <td className={cx('px-3 py-2.5 text-end tabular-nums', s.frequency > 4 && 'font-medium text-red-600 dark:text-red-400')}>
                       {active ? s.frequency.toFixed(1) : '-'}
                     </td>
                     <td className="px-3 py-2.5">
@@ -204,11 +207,11 @@ export default function Campaigns() {
               })}
             </tbody>
           </table>
-          {rows.length === 0 && <EmptyState>No campaigns match these filters.</EmptyState>}
+          {rows.length === 0 && <EmptyState>{t('common.noMatch')}</EmptyState>}
         </div>
       </Card>
       <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
-        ROAS and CPA are coloured against the goals in Settings: green on goal, amber within 20%, red beyond. Frequency above 4 is flagged.
+        {t('campaigns.footnote')}
       </p>
     </>
   );

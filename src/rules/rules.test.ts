@@ -176,3 +176,19 @@ describe('generateRecommendations', () => {
     expect([...anomalyTypes].sort()).toEqual(['cpa_spike', 'high_frequency', 'roas_drop', 'spend_stopped']);
   });
 });
+
+describe('pacing without a monthly budget', () => {
+  it('skips pacing recommendations for campaigns with no monthly plan (Meta has none)', () => {
+    const c = campaign('nobudget', { monthlyBudget: 0 });
+    const rows = series('nobudget', 30, () => ({ spend: 50, revenue: 400, conversions: 10 }));
+    const recs = generateRecommendations({
+      campaigns: [c],
+      campaignDaily: rows,
+      creatives: [],
+      creativeDaily: [],
+      asOf: AS_OF,
+      targets: { acc: { targetCpa: 40, targetRoas: 2.5 } },
+    });
+    expect(recs.filter((r) => r.type === 'raise_budget' || r.type === 'lower_budget')).toEqual([]);
+  });
+});

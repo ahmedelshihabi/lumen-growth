@@ -2,3 +2,10 @@ node_modules
 dist
 *.local
 *.tsbuildinfo
+
+# Local secrets
+.env
+.env.local
+supabase/functions/.env
+supabase/.temp
+test-results

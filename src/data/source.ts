@@ -1,10 +1,9 @@
 /**
  * Data access boundary.
  *
- * The UI only talks to a `DataSource`. Today it is backed by the seeded mock
- * generator; to go live, implement this interface with real connectors
- * (Meta Marketing API, Google Ads API, TikTok Business API - usually via
- * your own backend that holds the OAuth tokens) and swap it in `getDataSource()`.
+ * The UI only talks to a `DataSource`:
+ *   - MockDataSource      seeded sample data ("Demo mode": no Supabase env vars, or ?demo)
+ *   - SupabaseDataSource  (./supabaseSource.ts) reads the Meta insights cache in Supabase
  */
 import type { AdAccount, Campaign, CampaignDailyMetric, Creative, CreativeDailyMetric, Dataset, DateRange, ISODate } from './types';
 import { generateDataset, HISTORY_DAYS } from './mock';
@@ -12,6 +11,7 @@ import { addDays, localToday } from '../lib/dates';
 import { filterRange } from '../lib/metrics';
 
 export interface DataSource {
+  readonly kind: 'mock' | 'supabase';
   /** Last complete reporting day available. */
   getAsOf(): Promise<ISODate>;
   getAccounts(): Promise<AdAccount[]>;
@@ -21,9 +21,25 @@ export interface DataSource {
   getCampaignDaily(range: DateRange): Promise<CampaignDailyMetric[]>;
   /** Daily ad/creative-level insights within the range (inclusive). */
   getCreativeDaily(range: DateRange): Promise<CreativeDailyMetric[]>;
+  /**
+   * Persist per-campaign monthly budgets (Meta has none; pacing reads them).
+   * `null` removes a budget.
+   */
+  saveMonthlyBudgets(budgets: Record<string, number | null>): Promise<void>;
+}
+
+const BUDGETS_KEY = 'lumen.demoBudgets.v1';
+
+function readBudgetOverrides(): Record<string, number | null> {
+  try {
+    return JSON.parse(localStorage.getItem(BUDGETS_KEY) ?? '{}') as Record<string, number | null>;
+  } catch {
+    return {};
+  }
 }
 
 export class MockDataSource implements DataSource {
+  readonly kind = 'mock' as const;
   private readonly data: Dataset;
 
   constructor(asOf: ISODate = addDays(localToday(), -1)) {
@@ -37,7 +53,8 @@ export class MockDataSource implements DataSource {
     return this.data.accounts;
   }
   async getCampaigns() {
-    return this.data.campaigns;
+    const o = readBudgetOverrides();
+    return this.data.campaigns.map((c) => (c.id in o ? { ...c, monthlyBudget: o[c.id] ?? 0 } : c));
   }
   async getCreatives() {
     return this.data.creatives;
@@ -48,11 +65,20 @@ export class MockDataSource implements DataSource {
   async getCreativeDaily(range: DateRange) {
     return filterRange(this.data.creativeDaily, range);
   }
+  /** Demo mode keeps budget edits in this browser only. */
+  async saveMonthlyBudgets(budgets: Record<string, number | null>) {
+    const next = { ...readBudgetOverrides(), ...budgets };
+    try {
+      localStorage.setItem(BUDGETS_KEY, JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+  }
 }
 
 let source: DataSource | null = null;
 
-/** Swap the implementation here (or via env flag) when real connectors exist. */
+/** The demo source (shared so its generated dataset is built once). */
 export function getDataSource(): DataSource {
   if (!source) source = new MockDataSource();
   return source;

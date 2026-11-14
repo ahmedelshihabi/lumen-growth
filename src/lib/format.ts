@@ -1,16 +1,36 @@
-const usd0 = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-const usd2 = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-const compact = new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 1 });
-const int = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+// Number/money formatting. Locale follows the UI language (set by I18nProvider);
+// currency follows the loaded ad accounts (set by AppProvider).
+const locale = 'en-US';
+let currency = 'USD';
 
-export const fmtMoney = (n: number) => usd0.format(n);
-export const fmtMoney2 = (n: number) => usd2.format(n);
-export const fmtMoneyCompact = (n: number) => (Math.abs(n) >= 10_000 ? `$${compact.format(n)}` : usd0.format(n));
+let money0: Intl.NumberFormat;
+let money2: Intl.NumberFormat;
+let compact: Intl.NumberFormat;
+let int: Intl.NumberFormat;
+
+function build() {
+  money0 = new Intl.NumberFormat(locale, { style: 'currency', currency, maximumFractionDigits: 0 });
+  money2 = new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  compact = new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 });
+  int = new Intl.NumberFormat(locale, { maximumFractionDigits: 0 });
+}
+build();
+
+
+export function setDisplayCurrency(c: string) {
+  if (!c || c === currency) return;
+  currency = c;
+  build();
+}
+
+export const getDisplayCurrency = () => currency;
+
+export const fmtMoney = (n: number) => money0.format(n);
+export const fmtMoney2 = (n: number) => money2.format(n);
+export const fmtMoneyCompact = (n: number) =>
+  Math.abs(n) >= 10_000
+    ? new Intl.NumberFormat(locale, { style: 'currency', currency, notation: 'compact', maximumFractionDigits: 1 }).format(n)
+    : money0.format(n);
 export const fmtInt = (n: number) => int.format(n);
 export const fmtCompact = (n: number) => compact.format(n);
 export const fmtPct = (n: number, digits = 2) => `${(n * 100).toFixed(digits)}%`;
