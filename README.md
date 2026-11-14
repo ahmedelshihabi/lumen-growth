@@ -1,29 +1,46 @@
 # Lumen Growth
 
-A working MVP of a performance-marketing dashboard for media buyers, performance marketers and growth teams. It covers Meta, Google Ads and TikTok in one view and runs entirely in the browser on a seeded mock-data layer.
+A multi-customer SaaS for media buyers and growth teams in Egypt and the Gulf. Customers connect their Meta ad accounts and get one dashboard with ROAS, CPA, budget pacing, creative fatigue, anomaly alerts and recommendations. The UI is in Arabic (default, right-to-left) and English. Billing is a monthly subscription in EGP through Paymob, with manual InstaPay / Vodafone Cash activation as a fallback.
 
-## Features
+**Status: closed beta.** The Meta app stays in Development mode, so only people added as testers can connect ad accounts, and payments can be activated by hand until Paymob approves the account. Going public later needs configuration only, no code changes. The non-developer launch guide is **[SETUP_AR.md](SETUP_AR.md)** (Egyptian Arabic).
 
-- **Overview**: KPI tiles (Spend, Revenue, ROAS, CPA, CTR, Conversions), each with its change against the previous period and a sparkline. Also a daily spend vs revenue trend, a channel split and the top alerts. The date range can be 7, 14, 30 or 90 days.
-- **Campaigns**: a table of all campaigns across channels. You can sort it and filter by search text, channel, status and health. It shows status, daily budget, spend, revenue, ROAS, CPA, CTR and frequency. Health is color-coded against each account's goals.
-- **Budget pacing**: monthly budget vs month-to-date spend, by channel and by campaign. Projected month-end spend is month-to-date spend plus the 7-day run rate times the days left. Over- and under-pacing are flagged, with the daily spend needed to land on plan.
-- **Creative analytics**: a grid of creatives shown as colored placeholder tiles. Each card has hook rate (3-second views / impressions), CTR, CPA and spend. A fatigue indicator flags frequency rising while CTR falls (last 7 days vs the 7 days before), with a sparkline of both.
-- **Alerts**: rule-based anomaly detection with severities.
-  - CPA up more than 30% day over day
-  - ROAS drop (last 3 days vs the 14 days before)
-  - Spend stopped on a campaign that is not paused
-  - Frequency above 4
-- **Recommendations**: a deterministic rules engine.
-  - Budget shifts from campaigns below goal to campaigns above it, e.g. "Shift 15% budget from X (ROAS 0.8) to Y (ROAS 3.4)"
-  - Pausing campaigns that lose money
-  - Raising or lowering budgets based on pacing
-  - Creative refreshes
-  - Delivery fixes
-  - Audience expansion
+## Architecture
 
-  Each recommendation comes with an estimated monthly impact.
-- **Settings**: target CPA and ROAS per ad account, saved in `localStorage`. These goals drive the health colors and the rules. The theme toggle is also here.
-- Light and dark mode (follows the system setting the first time). The layout works from 1440px down to phone width.
+```
+Browser (Vite + React SPA, Vercel/Netlify)
+  │  anon key + user JWT; RLS limits every query to the user's workspace
+  ▼
+Supabase
+  ├─ Auth: email magic link, Google
+  ├─ Postgres + RLS: plans, profiles, workspaces, members, subscriptions, payments,
+  │                  meta_connections (tokens: service role only), ad_accounts,
+  │                  campaigns, ads, insights_daily, campaign_budgets
+  └─ Edge Functions (Deno)
+       paymob-checkout      → Paymob Intention API → Unified Checkout URL
+       paymob-webhook       ← Paymob callback: HMAC check, idempotent, +30 days
+       meta-oauth-callback  → code → long-lived token, lists ad accounts
+       meta-sync            → Graph API insights (30 days, campaign + ad level)
+       admin-activate       → platform admin activates after a manual transfer
+```
+
+### Security model
+
+- RLS is on for every table. Clients can only **read** their own workspace's rows. Subscriptions and payments are written only by Edge Functions using the service role, so a user cannot grant themselves a plan.
+- `meta_connections.access_token` has RLS with no policies, and every privilege is revoked from `anon` and `authenticated`. The UI reads a token-free status through `get_meta_connection()`.
+- Column grants let a user change only `profiles.full_name`/`locale`, `workspaces.name` and `ad_accounts.selected`. `is_platform_admin` is set from the SQL editor.
+- Plan limits are enforced in the database. Triggers check `max_ad_accounts` when an account is selected and `max_members` when a member is added. Writes such as budgets and account selection need an active subscription (`workspace_is_active()`).
+- A new signup gets a profile, its own workspace (as owner) and a 14-day **Growth** trial (trigger `handle_new_user`).
+
+### Plans (seeded, per month)
+
+| Plan | EGP | Ad accounts | Members | Pages |
+|---|---|---|---|---|
+| Free | 0 | 1 | 1 | Overview, Campaigns |
+| Starter | 999 | 2 | 2 | + Pacing, Alerts |
+| Growth | 2,499 | 5 | 5 | + Creatives, Recommendations |
+| Agency | 6,999 | 25 | 15 | + priority support |
+
+Prices are stored in minor units with a `currency` per plan, so AED or SAR rows can be added later (`unique (tier, currency)`). When a trial ends or a subscription lapses, the app shows a read-only lock screen that links to billing. The owner can also continue on Free.
 
 ## Run it
 
@@ -31,58 +48,50 @@ A working MVP of a performance-marketing dashboard for media buyers, performance
 npm install
 npm run dev       # http://localhost:5173
 npm run build     # type-check + production build to dist/
-npm run preview   # serve dist/ on http://localhost:4173
-npm test          # Vitest unit tests for the rules
+npm test          # Vitest: rules, entitlements, Paymob HMAC, period maths, Meta mapping
 ```
 
-Stack: Vite, React 18, TypeScript, Tailwind CSS 3, Recharts. There is no backend.
+**Demo mode.** With no `VITE_SUPABASE_*` variables, or with `?demo` in the URL (`?demo=0` turns it off), the app uses the seeded `MockDataSource` and a fake trialing workspace. No backend is needed, and everything builds and runs.
+
+To use a real backend, copy `.env.example` to `.env.local` and follow SETUP_AR.md. The function secrets are listed in `supabase/functions/.env.example` and are set with `supabase secrets set`. They never go in the frontend env.
+
+To type-check the Edge Functions, run `deno check supabase/functions/*/index.ts`. This needs Deno.
 
 ## Project layout
 
 ```
+supabase/
+  migrations/              # schema, RLS, triggers, billing RPCs, seed plans
+  functions/
+    _shared/               # http/auth helpers, Paymob + Graph clients,
+                           # pure: paymob-hmac.ts, period.ts, meta.ts (+ *.test.ts)
+    paymob-checkout/ paymob-webhook/ meta-oauth-callback/ meta-sync/ admin-activate/
+  config.toml              # verify_jwt off for paymob-webhook and meta-sync
 src/
-  data/
-    types.ts         # Domain types: AdAccount, Campaign, Creative, daily metric rows
-    source.ts        # DataSource interface + MockDataSource + loadDataset()
-    mock.ts          # Seeded generator (190 days, 3 accounts, 12 campaigns, 20 creatives)
-  rules/             # Pure functions, no React
-    anomalies.ts     # detectAnomalies()
-    recommendations.ts  # generateRecommendations()
-    pacing.ts        # computePacing()
-    fatigue.ts       # detectFatigue()
-    health.ts        # campaignHealth(), metricHealth()
-    summary.ts       # per-campaign aggregation for a date range
-    targets.ts       # default goals per account
-    rules.test.ts    # Vitest tests
-  lib/               # metrics aggregation, dates, formatting, chart colors, hash router
-  state/AppContext.tsx  # dataset loading, date range, goals (localStorage), theme
-  components/        # Layout (sidebar / mobile drawer), UI primitives, chart tooltip, icons
-  pages/             # Overview, Campaigns, Pacing, Creatives, Alerts, Recommendations, Settings
+  App.tsx                  # path router: / /pricing /login /app/* /admin
+  AppShell.tsx             # gating: lock screen, upgrade prompts, empty state
+  i18n/                    # dict.ts (en + ar), provider, language toggle
+  state/SessionContext.tsx # user, workspace, subscription, plans, entitlements
+  state/AppContext.tsx     # dataset from the active DataSource, goals, theme
+  data/source.ts           # DataSource interface + MockDataSource (demo)
+  data/supabaseSource.ts   # SupabaseDataSource (insights_daily, budgets)
+  lib/entitlements.ts      # plan/feature/lock logic (tested)
+  pages/                   # 7 dashboard pages + Billing, Connect, Admin
+  pages/public/            # Landing, Pricing, Login
+  rules/                   # pure rules engines (unchanged API)
+public/legal/              # DRAFT terms / privacy / refunds pages
 ```
 
-## Plugging in real data
+## Data notes
 
-The UI talks to data only through the `DataSource` interface in `src/data/source.ts`:
+- `meta-sync` pulls `GET /{act}/insights` with `level=campaign|ad` and `time_increment=1` for the last 30 days, plus campaign and ad metadata, and upserts them into `insights_daily`. Over time, daily syncs build up history. Only the first `max_ad_accounts` selected accounts are synced.
+- Purchases come from `actions` / `action_values`, taking the first of `omni_purchase`, `purchase` and the pixel purchase, so they are not double counted. 3-second views come from `actions[video_view]`.
+- Meta has no monthly budgets, so teams enter them per campaign in **Settings** (`campaign_budgets`). Pacing and the pacing recommendations skip campaigns without one.
+- Alert and recommendation texts come from the rules engine and are still English in both languages.
 
-```ts
-interface DataSource {
-  getAsOf(): Promise<ISODate>;
-  getAccounts(): Promise<AdAccount[]>;
-  getCampaigns(): Promise<Campaign[]>;
-  getCreatives(): Promise<Creative[]>;
-  getCampaignDaily(range: DateRange): Promise<CampaignDailyMetric[]>;
-  getCreativeDaily(range: DateRange): Promise<CreativeDailyMetric[]>;
-}
-```
+## Unverified API details
 
-To go live:
+The Paymob and Meta developer sites could not be reached from the build environment. Everything below was written from prior knowledge and is marked `// VERIFY:` in code. Check each item before going live: `grep -rn "VERIFY:" supabase/functions`.
 
-1. Write a backend or proxy that holds the platform OAuth tokens. Do not put tokens in the browser.
-2. Map each platform's fields onto the types in `src/data/types.ts`. All amounts are in account currency, and dates are `YYYY-MM-DD` in the account's timezone.
-   - **Meta** (`/insights`, `level=campaign|ad`, `time_increment=1`): `spend`, `impressions`, `reach`, `clicks`, `frequency`. Conversions come from `actions[purchase]` and revenue from `action_values[purchase]`. `videoViews3s` comes from `video_play_actions`.
-   - **Google Ads** (GAQL `campaign` / `ad_group_ad` with `segments.date`): `metrics.cost_micros / 1e6`, `impressions`, `clicks`, `conversions`, `conversions_value`.
-   - **TikTok** (`/report/integrated/get/`, `stat_time_day`): `spend`, `impressions`, `reach`, `clicks`, `frequency`, `conversion`, `total_complete_payment_rate` / value, `video_watched_2s`.
-3. Implement `DataSource` (for example `ApiDataSource`) and return it from `getDataSource()`.
-4. `monthlyBudget` is a planning value, not a platform field. Load it from your budget sheet or database.
-
-The rules engines in `src/rules/` only consume these normalized shapes, so they work unchanged on real data. Their thresholds are in the exported `DEFAULT_*_CONFIG` objects.
+- Paymob: the `POST /v1/intention/` path, `Authorization: Token <secret>`, the body (amount in piasters, `payment_methods` as integration IDs, required `billing_data` fields, `special_reference`, `notification_url`), the `intention_order_id` response field, the unified checkout URL `/unifiedcheckout/?publicKey=&clientSecret=`, the regional hosts, and the HMAC field list and order, boolean rendering, `?hmac=` query param, `type: "TRANSACTION"` and `order.merchant_order_id` = special_reference.
+- Meta: the pinned Graph version (`v24.0`), the dialog URL, both `oauth/access_token` exchanges, `Authorization: Bearer` on Graph calls, the `/me/adaccounts`, `/campaigns`, `/ads` and `/insights` fields, the purchase and video action types, the budget minor-unit offsets and the creative `object_type` values.
