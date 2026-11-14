@@ -1,6 +1,8 @@
 import type { Campaign, CampaignDailyMetric, Channel, ISODate } from '../data/types';
 import { addDays } from '../lib/dates';
 import { safeDiv } from '../lib/metrics';
+import { fmtMoney, fmtMoney2 } from '../lib/format';
+import { msg, renderEn, type Msg } from './msg';
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
 export type AnomalyType = 'cpa_spike' | 'roas_drop' | 'spend_stopped' | 'high_frequency';
@@ -13,8 +15,11 @@ export interface Anomaly {
   campaignName: string;
   channel: Channel;
   date: ISODate;
+  /** English text; the UI renders the translatable `titleMsg` / `detailMsg` instead. */
   title: string;
   detail: string;
+  titleMsg: Msg;
+  detailMsg: Msg;
   current: number;
   baseline: number;
 }
@@ -70,6 +75,13 @@ function sumWindow(byDate: Map<string, DayRow>, end: ISODate, days: number) {
 
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+const texts = (titleMsg: Msg, detailMsg: Msg) => ({
+  titleMsg,
+  detailMsg,
+  title: renderEn(titleMsg),
+  detail: renderEn(detailMsg),
+});
+
 /**
  * Rule-based anomaly detection over daily campaign insights.
  *
@@ -113,10 +125,15 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
           type: 'cpa_spike',
           severity: !finite || change >= 0.6 ? 'high' : 'medium',
           date,
-          title: finite ? `CPA spiked ${pct(change)} day over day` : 'Spend with zero conversions',
-          detail: finite
-            ? `CPA went from $${prevCpa.toFixed(2)} to $${cpa.toFixed(2)} on ${date}.`
-            : `$${today.spend.toFixed(0)} spent on ${date} without a conversion.`,
+          ...(finite
+            ? texts(
+                msg('anomalyMsg.cpaSpike.title', { pct: pct(change) }),
+                msg('anomalyMsg.cpaSpike.detail', { from: fmtMoney2(prevCpa), to: fmtMoney2(cpa), date }),
+              )
+            : texts(
+                msg('anomalyMsg.zeroConv.title'),
+                msg('anomalyMsg.zeroConv.detail', { spend: fmtMoney(today.spend), date }),
+              )),
           current: finite ? cpa : today.spend,
           baseline: prevCpa,
         });
@@ -135,8 +152,15 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
           type: 'roas_drop',
           severity: drop >= 0.4 ? 'high' : 'medium',
           date: asOf,
-          title: `ROAS down ${pct(drop)}`,
-          detail: `Last ${config.roasRecentDays} days ROAS ${recent.roas.toFixed(2)}x vs ${baseline.roas.toFixed(2)}x over the prior ${config.roasBaselineDays} days.`,
+          ...texts(
+            msg('anomalyMsg.roasDrop.title', { pct: pct(drop) }),
+            msg('anomalyMsg.roasDrop.detail', {
+              recentDays: config.roasRecentDays,
+              recent: `${recent.roas.toFixed(2)}x`,
+              baseline: `${baseline.roas.toFixed(2)}x`,
+              baseDays: config.roasBaselineDays,
+            }),
+          ),
           current: recent.roas,
           baseline: baseline.roas,
         });
@@ -157,8 +181,15 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
           type: 'spend_stopped',
           severity: 'critical',
           date: asOf,
-          title: streak === 1 ? 'Spend stopped yesterday' : `No spend for ${streak} days`,
-          detail: `Campaign is ${c.status.toLowerCase()} but delivered $0 since ${addDays(asOf, -(streak - 1))} (was ~$${avgBefore.toFixed(0)}/day). Check billing, approvals and schedule.`,
+          ...texts(
+            streak === 1 ? msg('anomalyMsg.stopped.titleOne') : msg('anomalyMsg.stopped.title', { n: streak }),
+            msg('anomalyMsg.stopped.detail', {
+              status: c.status.toLowerCase(),
+              zero: fmtMoney(0),
+              since: addDays(asOf, -(streak - 1)),
+              avg: fmtMoney(avgBefore),
+            }),
+          ),
           current: 0,
           baseline: avgBefore,
         });
@@ -174,8 +205,10 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
         type: 'high_frequency',
         severity: last.frequency > config.frequencyMax * 1.25 ? 'high' : 'medium',
         date: asOf,
-        title: `Frequency at ${last.frequency.toFixed(1)}`,
-        detail: `7-day frequency is above the cap of ${config.frequencyMax}. Audience saturation risk - expect rising CPMs and falling CTR.`,
+        ...texts(
+          msg('anomalyMsg.freq.title', { freq: last.frequency.toFixed(1) }),
+          msg('anomalyMsg.freq.detail', { max: config.frequencyMax }),
+        ),
         current: last.frequency,
         baseline: config.frequencyMax,
       });

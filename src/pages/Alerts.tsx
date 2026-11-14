@@ -65,10 +65,10 @@ export default function Alerts() {
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-sm font-semibold" dir="auto">{a.title}</span>
+                    <span className="text-sm font-semibold" dir="auto">{t(a.titleMsg.key, a.titleMsg.vars)}</span>
                     <span className="text-xs text-zinc-500 dark:text-zinc-400">{t(`anomaly.${a.type}`)}</span>
                   </div>
-                  <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-300" dir="auto">{a.detail}</p>
+                  <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-300" dir="auto">{t(a.detailMsg.key, a.detailMsg.vars)}</p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
                     <ChannelBadge channel={a.channel} />
                     <span className="truncate">{a.campaignName}</span>

@@ -8,6 +8,7 @@ import { computePacing } from './pacing';
 import { generateRecommendations } from './recommendations';
 import { generateDataset } from '../data/mock';
 import { DEFAULT_TARGETS } from './targets';
+import { DICTS } from '../i18n/dict';
 
 const AS_OF = '2026-03-20';
 
@@ -190,5 +191,24 @@ describe('pacing without a monthly budget', () => {
       targets: { acc: { targetCpa: 40, targetRoas: 2.5 } },
     });
     expect(recs.filter((r) => r.type === 'raise_budget' || r.type === 'lower_budget')).toEqual([]);
+  });
+});
+
+describe('translatable rule texts', () => {
+  it('fills every placeholder in English and Arabic for all generated alerts and recommendations', () => {
+    const data = generateDataset('2026-11-13');
+    const input = { ...data, targets: DEFAULT_TARGETS };
+    const msgs = [
+      ...detectAnomalies(data).flatMap((a) => [a.titleMsg, a.detailMsg]),
+      ...generateRecommendations(input).flatMap((r) => [r.titleMsg, r.rationaleMsg, r.impact.labelMsg]),
+    ];
+    expect(msgs.length).toBeGreaterThan(10);
+    for (const m of msgs) {
+      for (const lang of ['en', 'ar'] as const) {
+        let s: string = DICTS[lang][m.key];
+        for (const [k, v] of Object.entries(m.vars)) s = s.split(`{${k}}`).join(String(v));
+        expect(s, `${lang}:${m.key}`).not.toMatch(/\{\w+\}/);
+      }
+    }
   });
 });

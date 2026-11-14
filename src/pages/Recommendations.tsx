@@ -20,7 +20,7 @@ const IMPACT_STYLE = {
 
 export default function Recommendations() {
   const { rulesInput } = useLoadedApp();
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const recs = useMemo(() => generateRecommendations(rulesInput), [rulesInput]);
   const [done, setDone] = useState<Set<string>>(new Set());
 
@@ -41,7 +41,6 @@ export default function Recommendations() {
         title={t('nav.recommendations')}
         subtitle={t('recs.subtitle')}
       />
-      {lang === 'ar' && <p className="-mt-2 mb-4 text-xs text-zinc-500 dark:text-zinc-400">{t('recs.englishNote')}</p>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard label={t('recs.open')} value={open.length} sub={t('recs.highPriority', { n: open.filter((r) => r.priority === 'high').length })} />
@@ -71,8 +70,8 @@ export default function Recommendations() {
                       <ChannelBadge key={c} channel={c} />
                     ))}
                   </div>
-                  <h3 dir="auto" className={cx('mt-1.5 text-[15px] font-semibold leading-snug', isDone && 'line-through')}>{r.title}</h3>
-                  <p dir="auto" className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{r.rationale}</p>
+                  <h3 dir="auto" className={cx('mt-1.5 text-[15px] font-semibold leading-snug', isDone && 'line-through')}>{t(r.titleMsg.key, r.titleMsg.vars)}</h3>
+                  <p dir="auto" className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{t(r.rationaleMsg.key, r.rationaleMsg.vars)}</p>
                 </div>
                 <div className="flex items-center justify-between gap-4 sm:w-48 sm:flex-col sm:items-end sm:justify-start">
                   <div className="sm:text-end">
@@ -80,7 +79,7 @@ export default function Recommendations() {
                       {r.impact.kind === 'revenue' ? '+' : ''}
                       {fmtMoney(r.impact.monthly)}
                     </div>
-                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{r.impact.label}</div>
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{t(r.impact.labelMsg.key, r.impact.labelMsg.vars)}</div>
                   </div>
                   <button
                     onClick={() => toggle(r.id)}

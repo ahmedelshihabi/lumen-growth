@@ -201,7 +201,7 @@ export default function Overview() {
             {alerts.map((a) => (
               <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 text-sm">
                 <SeverityBadge severity={a.severity} />
-                <span className="font-medium">{a.title}</span>
+                <span className="font-medium">{t(a.titleMsg.key, a.titleMsg.vars)}</span>
                 <span className="min-w-0 truncate text-zinc-500 dark:text-zinc-400">{a.campaignName}</span>
                 <span className="ms-auto">
                   <ChannelBadge channel={a.channel} />

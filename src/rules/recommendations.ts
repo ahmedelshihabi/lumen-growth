@@ -6,6 +6,7 @@ import { detectFatigue } from './fatigue';
 import { computePacing } from './pacing';
 import { summarizeCampaigns, type CampaignSummary } from './summary';
 import type { RulesInput } from './types';
+import { msg, renderEn, type Msg } from './msg';
 
 export type RecommendationType =
   | 'shift_budget'
@@ -22,13 +23,17 @@ export interface Recommendation {
   id: string;
   type: RecommendationType;
   priority: Priority;
+  /** English text; the UI renders the translatable `titleMsg` / `rationaleMsg` instead. */
   title: string;
   rationale: string;
+  titleMsg: Msg;
+  rationaleMsg: Msg;
   impact: {
     kind: 'revenue' | 'savings' | 'protect';
     /** Estimated monthly value in account currency. */
     monthly: number;
     label: string;
+    labelMsg: Msg;
   };
   campaignIds: string[];
   creativeIds: string[];
@@ -69,6 +74,20 @@ function priorityFor(monthly: number, forceHigh = false): Priority {
 
 const PRIORITY_RANK: Record<Priority, number> = { high: 0, medium: 1, low: 2 };
 
+const texts = (titleMsg: Msg, rationaleMsg: Msg) => ({
+  titleMsg,
+  rationaleMsg,
+  title: renderEn(titleMsg),
+  rationale: renderEn(rationaleMsg),
+});
+
+const impact = (kind: Recommendation['impact']['kind'], monthly: number, labelMsg: Msg): Recommendation['impact'] => ({
+  kind,
+  monthly,
+  labelMsg,
+  label: renderEn(labelMsg),
+});
+
 /**
  * Deterministic rules engine. Same input -> same recommendations, in the same order.
  */
@@ -94,9 +113,16 @@ export function generateRecommendations(
       id: `pause_campaign:${s.campaign.id}`,
       type: 'pause_campaign',
       priority: priorityFor(monthlySpend - monthlyRevenue),
-      title: `Pause ${s.campaign.name} (ROAS ${s.totals.roas.toFixed(2)})`,
-      rationale: `ROAS is ${Math.round((s.totals.roas / s.target.targetRoas) * 100)}% of the ${s.target.targetRoas.toFixed(1)}x goal over the last ${config.windowDays} days. Pausing frees ~${money(monthlySpend)}/mo for campaigns above goal.`,
-      impact: { kind: 'savings', monthly: monthlySpend - monthlyRevenue, label: 'net loss avoided / mo' },
+      ...texts(
+        msg('recMsg.pause.title', { name: s.campaign.name, roas: s.totals.roas.toFixed(2) }),
+        msg('recMsg.pause.rationale', {
+          pct: `${Math.round((s.totals.roas / s.target.targetRoas) * 100)}%`,
+          goal: `${s.target.targetRoas.toFixed(1)}x`,
+          days: config.windowDays,
+          amount: money(monthlySpend),
+        }),
+      ),
+      impact: impact('savings', monthlySpend - monthlyRevenue, msg('recMsg.label.netLoss')),
       campaignIds: [s.campaign.id],
       creativeIds: [],
       channels: [s.campaign.channel],
@@ -133,9 +159,20 @@ export function generateRecommendations(
       id: `shift_budget:${loser.campaign.id}:${winner.campaign.id}`,
       type: 'shift_budget',
       priority: priorityFor(gain),
-      title: `Shift ${Math.round(share * 100)}% budget from ${loser.campaign.name} (ROAS ${loser.totals.roas.toFixed(1)}) to ${winner.campaign.name} (ROAS ${winner.totals.roas.toFixed(1)})`,
-      rationale: `Move ${money(shiftPerDay)}/day. Assumes the receiving campaign keeps ${Math.round(config.scaleEfficiency * 100)}% of its current efficiency at higher spend.`,
-      impact: { kind: 'revenue', monthly: gain, label: 'extra revenue / mo' },
+      ...texts(
+        msg('recMsg.shift.title', {
+          pct: `${Math.round(share * 100)}%`,
+          from: loser.campaign.name,
+          fromRoas: loser.totals.roas.toFixed(1),
+          to: winner.campaign.name,
+          toRoas: winner.totals.roas.toFixed(1),
+        }),
+        msg('recMsg.shift.rationale', {
+          amount: money(shiftPerDay),
+          eff: `${Math.round(config.scaleEfficiency * 100)}%`,
+        }),
+      ),
+      impact: impact('revenue', gain, msg('recMsg.label.extraRevenue')),
       campaignIds: [loser.campaign.id, winner.campaign.id],
       creativeIds: [],
       channels: [...new Set([loser.campaign.channel, winner.campaign.channel])],
@@ -158,9 +195,13 @@ export function generateRecommendations(
         id: `fix_delivery:${a.campaignId}`,
         type: 'fix_delivery',
         priority: 'high',
-        title: `Investigate stopped delivery on ${a.campaignName}`,
-        rationale: `${a.title}. Status is active but nothing is spending: check payment method, ad approvals, end dates and bid caps.`,
-        impact: { kind: 'protect', monthly: atRisk, label: 'revenue at risk / mo' },
+        ...texts(
+          msg('recMsg.delivery.title', { name: a.campaignName }),
+          a.titleMsg.key === 'anomalyMsg.stopped.titleOne'
+            ? msg('recMsg.delivery.rationaleOne')
+            : msg('recMsg.delivery.rationale', a.titleMsg.vars),
+        ),
+        impact: impact('protect', atRisk, msg('recMsg.label.atRisk')),
         campaignIds: [a.campaignId],
         creativeIds: [],
         channels: [a.channel],
@@ -172,9 +213,11 @@ export function generateRecommendations(
         id: `expand_audience:${a.campaignId}`,
         type: 'expand_audience',
         priority: priorityFor(protect),
-        title: `Expand audience on ${a.campaignName} (frequency ${x(a.current)})`,
-        rationale: `Frequency is over ${config.frequencyMax}. Widen the lookback window or exclude recent purchasers to keep CTR from decaying.`,
-        impact: { kind: 'protect', monthly: protect, label: 'revenue protected / mo (est. 10%)' },
+        ...texts(
+          msg('recMsg.audience.title', { name: a.campaignName, freq: x(a.current) }),
+          msg('recMsg.audience.rationale', { max: config.frequencyMax }),
+        ),
+        impact: impact('protect', protect, msg('recMsg.label.protected')),
         campaignIds: [a.campaignId],
         creativeIds: [],
         channels: [a.channel],
@@ -196,9 +239,14 @@ export function generateRecommendations(
           id: `raise_budget:${s.campaign.id}`,
           type: 'raise_budget',
           priority: priorityFor(gain),
-          title: `Raise the monthly budget of ${s.campaign.name} by ${money(overage)}`,
-          rationale: `Projected to overspend its plan by ${Math.round((p.pacing - 1) * 100)}%, but ROAS ${s.totals.roas.toFixed(1)}x beats goal. Fund it rather than throttling a winner.`,
-          impact: { kind: 'revenue', monthly: gain, label: 'revenue kept / mo' },
+          ...texts(
+            msg('recMsg.raiseMonthly.title', { name: s.campaign.name, amount: money(overage) }),
+            msg('recMsg.raiseMonthly.rationale', {
+              pct: `${Math.round((p.pacing - 1) * 100)}%`,
+              roas: `${s.totals.roas.toFixed(1)}x`,
+            }),
+          ),
+          impact: impact('revenue', gain, msg('recMsg.label.revenueKept')),
           campaignIds: [s.campaign.id],
           creativeIds: [],
           channels: [s.campaign.channel],
@@ -208,9 +256,15 @@ export function generateRecommendations(
           id: `lower_budget:${s.campaign.id}`,
           type: 'lower_budget',
           priority: priorityFor(overage),
-          title: `Lower the daily budget of ${s.campaign.name} to ${money(p.recommendedDaily)}`,
-          rationale: `Projected to overspend its plan by ${money(overage)} while missing goal (ROAS ${s.totals.roas.toFixed(1)}x vs ${s.target.targetRoas.toFixed(1)}x).`,
-          impact: { kind: 'savings', monthly: overage, label: 'overspend avoided' },
+          ...texts(
+            msg('recMsg.lower.title', { name: s.campaign.name, amount: money(p.recommendedDaily) }),
+            msg('recMsg.lower.rationale', {
+              amount: money(overage),
+              roas: `${s.totals.roas.toFixed(1)}x`,
+              goal: `${s.target.targetRoas.toFixed(1)}x`,
+            }),
+          ),
+          impact: impact('savings', overage, msg('recMsg.label.overspend')),
           campaignIds: [s.campaign.id],
           creativeIds: [],
           channels: [s.campaign.channel],
@@ -223,9 +277,11 @@ export function generateRecommendations(
         id: `raise_budget:${s.campaign.id}`,
         type: 'raise_budget',
         priority: priorityFor(gain),
-        title: `Increase the daily budget of ${s.campaign.name} to ${money(p.recommendedDaily)}`,
-        rationale: `Under-pacing (${Math.round(p.pacing * 100)}% of plan) while beating its ROAS goal. ${money(headroom)} of planned budget would go unspent.`,
-        impact: { kind: 'revenue', monthly: gain, label: 'extra revenue / mo' },
+        ...texts(
+          msg('recMsg.raiseDaily.title', { name: s.campaign.name, amount: money(p.recommendedDaily) }),
+          msg('recMsg.raiseDaily.rationale', { pct: `${Math.round(p.pacing * 100)}%`, amount: money(headroom) }),
+        ),
+        impact: impact('revenue', gain, msg('recMsg.label.extraRevenue')),
         campaignIds: [s.campaign.id],
         creativeIds: [],
         channels: [s.campaign.channel],
@@ -249,9 +305,15 @@ export function generateRecommendations(
       id: `refresh_creative:${cr.id}`,
       type: 'refresh_creative',
       priority: priorityFor(recovered),
-      title: `Refresh creative "${cr.name}" (fatigued)`,
-      rationale: `Frequency +${Math.round(f.frequencyChange * 100)}% while CTR ${Math.round(f.ctrChange * 100)}% week over week in ${camp.name}. Launch 2-3 new variants on the same hook.`,
-      impact: { kind: 'revenue', monthly: recovered, label: 'revenue recovered / mo' },
+      ...texts(
+        msg('recMsg.creative.title', { name: cr.name }),
+        msg('recMsg.creative.rationale', {
+          freq: `+${Math.round(f.frequencyChange * 100)}%`,
+          ctr: `${Math.round(f.ctrChange * 100)}%`,
+          campaign: camp.name,
+        }),
+      ),
+      impact: impact('revenue', recovered, msg('recMsg.label.recovered')),
       campaignIds: [cr.campaignId],
       creativeIds: [cr.id],
       channels: [cr.channel],

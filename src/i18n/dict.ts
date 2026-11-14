@@ -313,7 +313,6 @@ const en = {
   'recs.none': 'Nothing to do - every campaign is on goal.',
   'recs.markDone': 'Mark done',
   'recs.done': 'Done',
-  'recs.englishNote': 'Recommendation and alert texts are generated in English for now.',
   'priority.high': 'High',
   'priority.medium': 'Medium',
   'priority.low': 'Low',
@@ -324,6 +323,55 @@ const en = {
   'rec.refresh_creative': 'Creative refresh',
   'rec.fix_delivery': 'Delivery',
   'rec.expand_audience': 'Audience',
+
+  // alert texts (rules/anomalies.ts)
+  'anomalyMsg.cpaSpike.title': 'CPA spiked {pct} day over day',
+  'anomalyMsg.cpaSpike.detail': 'CPA went from {from} to {to} on {date}.',
+  'anomalyMsg.zeroConv.title': 'Spend with zero conversions',
+  'anomalyMsg.zeroConv.detail': '{spend} spent on {date} without a conversion.',
+  'anomalyMsg.roasDrop.title': 'ROAS down {pct}',
+  'anomalyMsg.roasDrop.detail': 'Last {recentDays} days ROAS {recent} vs {baseline} over the prior {baseDays} days.',
+  'anomalyMsg.stopped.titleOne': 'Spend stopped yesterday',
+  'anomalyMsg.stopped.title': 'No spend for {n} days',
+  'anomalyMsg.stopped.detail':
+    'Campaign is {status} but delivered {zero} since {since} (was ~{avg}/day). Check billing, approvals and schedule.',
+  'anomalyMsg.freq.title': 'Frequency at {freq}',
+  'anomalyMsg.freq.detail':
+    '7-day frequency is above the cap of {max}. Audience saturation risk - expect rising CPMs and falling CTR.',
+
+  // recommendation texts (rules/recommendations.ts)
+  'recMsg.pause.title': 'Pause {name} (ROAS {roas})',
+  'recMsg.pause.rationale':
+    'ROAS is {pct} of the {goal} goal over the last {days} days. Pausing frees ~{amount}/mo for campaigns above goal.',
+  'recMsg.shift.title': 'Shift {pct} budget from {from} (ROAS {fromRoas}) to {to} (ROAS {toRoas})',
+  'recMsg.shift.rationale':
+    'Move {amount}/day. Assumes the receiving campaign keeps {eff} of its current efficiency at higher spend.',
+  'recMsg.delivery.title': 'Investigate stopped delivery on {name}',
+  'recMsg.delivery.rationaleOne':
+    'Spend stopped yesterday. Status is active but nothing is spending: check payment method, ad approvals, end dates and bid caps.',
+  'recMsg.delivery.rationale':
+    'No spend for {n} days. Status is active but nothing is spending: check payment method, ad approvals, end dates and bid caps.',
+  'recMsg.audience.title': 'Expand audience on {name} (frequency {freq})',
+  'recMsg.audience.rationale':
+    'Frequency is over {max}. Widen the lookback window or exclude recent purchasers to keep CTR from decaying.',
+  'recMsg.raiseMonthly.title': 'Raise the monthly budget of {name} by {amount}',
+  'recMsg.raiseMonthly.rationale':
+    'Projected to overspend its plan by {pct}, but ROAS {roas} beats goal. Fund it rather than throttling a winner.',
+  'recMsg.lower.title': 'Lower the daily budget of {name} to {amount}',
+  'recMsg.lower.rationale': 'Projected to overspend its plan by {amount} while missing goal (ROAS {roas} vs {goal}).',
+  'recMsg.raiseDaily.title': 'Increase the daily budget of {name} to {amount}',
+  'recMsg.raiseDaily.rationale':
+    'Under-pacing ({pct} of plan) while beating its ROAS goal. {amount} of planned budget would go unspent.',
+  'recMsg.creative.title': 'Refresh creative "{name}" (fatigued)',
+  'recMsg.creative.rationale':
+    'Frequency {freq} while CTR {ctr} week over week in {campaign}. Launch 2-3 new variants on the same hook.',
+  'recMsg.label.netLoss': 'net loss avoided / mo',
+  'recMsg.label.extraRevenue': 'extra revenue / mo',
+  'recMsg.label.atRisk': 'revenue at risk / mo',
+  'recMsg.label.protected': 'revenue protected / mo (est. 10%)',
+  'recMsg.label.revenueKept': 'revenue kept / mo',
+  'recMsg.label.overspend': 'overspend avoided',
+  'recMsg.label.recovered': 'revenue recovered / mo',
 
   // settings
   'settings.subtitle': 'Goals drive health colours, alerts and recommendations. Monthly budgets drive pacing.',
@@ -646,7 +694,6 @@ const ar: Dict = {
   'recs.none': 'مفيش حاجة مطلوبة - كل الحملات على الهدف.',
   'recs.markDone': 'تم التنفيذ',
   'recs.done': 'تم',
-  'recs.englishNote': 'نصوص التوصيات والتنبيهات بتتولد بالإنجليزي حاليًا.',
   'priority.high': 'عالية',
   'priority.medium': 'متوسطة',
   'priority.low': 'منخفضة',
@@ -657,6 +704,55 @@ const ar: Dict = {
   'rec.refresh_creative': 'تجديد الإعلان',
   'rec.fix_delivery': 'العرض',
   'rec.expand_audience': 'الجمهور',
+
+  // نصوص التنبيهات
+  'anomalyMsg.cpaSpike.title': 'تكلفة التحويل (CPA) زادت {pct} عن اليوم اللي قبله',
+  'anomalyMsg.cpaSpike.detail': 'تكلفة التحويل طلعت من {from} لـ {to} يوم {date}.',
+  'anomalyMsg.zeroConv.title': 'صرف من غير ولا تحويل',
+  'anomalyMsg.zeroConv.detail': 'اتصرف {spend} يوم {date} ومفيش ولا تحويل.',
+  'anomalyMsg.roasDrop.title': 'العائد (ROAS) نزل {pct}',
+  'anomalyMsg.roasDrop.detail': 'العائد في آخر {recentDays} أيام {recent} مقابل {baseline} في الـ{baseDays} يوم اللي قبلهم.',
+  'anomalyMsg.stopped.titleOne': 'الصرف وقف امبارح',
+  'anomalyMsg.stopped.title': 'مفيش صرف بقاله {n} أيام',
+  'anomalyMsg.stopped.detail':
+    'الحملة مش متوقفة لكن صرفها {zero} من يوم {since} (كانت بتصرف حوالي {avg} في اليوم). راجع وسيلة الدفع، وموافقات الإعلانات، والجدول الزمني.',
+  'anomalyMsg.freq.title': 'التكرار وصل {freq}',
+  'anomalyMsg.freq.detail':
+    'التكرار في آخر 7 أيام أعلى من الحد ({max}). الجمهور قرب يتشبع، فتوقع إن تكلفة الألف ظهور (CPM) تزيد ونسبة الضغط (CTR) تقل.',
+
+  // نصوص التوصيات
+  'recMsg.pause.title': 'وقّف {name} (العائد {roas})',
+  'recMsg.pause.rationale':
+    'العائد {pct} بس من الهدف ({goal}) في آخر {days} يوم. لو وقفتها هتوفر حوالي {amount} في الشهر للحملات اللي فوق الهدف.',
+  'recMsg.shift.title': 'انقل {pct} من ميزانية {from} (العائد {fromRoas}) لـ {to} (العائد {toRoas})',
+  'recMsg.shift.rationale':
+    'انقل {amount} في اليوم. الحساب ده على افتراض إن الحملة اللي هتاخد الميزانية هتحافظ على {eff} من كفاءتها الحالية مع الصرف الأعلى.',
+  'recMsg.delivery.title': 'شوف ليه {name} وقفت عن الظهور',
+  'recMsg.delivery.rationaleOne':
+    'الصرف وقف امبارح. الحملة شغالة لكن مفيش صرف: راجع وسيلة الدفع، وموافقات الإعلانات، وتاريخ الانتهاء، وحدود المزايدة.',
+  'recMsg.delivery.rationale':
+    'مفيش صرف بقاله {n} أيام. الحملة شغالة لكن مفيش صرف: راجع وسيلة الدفع، وموافقات الإعلانات، وتاريخ الانتهاء، وحدود المزايدة.',
+  'recMsg.audience.title': 'وسّع جمهور {name} (التكرار {freq})',
+  'recMsg.audience.rationale':
+    'التكرار أعلى من {max}. كبّر فترة الاستهداف أو استبعد اللي اشتروا قريب، عشان نسبة الضغط (CTR) متقعش.',
+  'recMsg.raiseMonthly.title': 'زوّد الميزانية الشهرية لـ {name} بـ {amount}',
+  'recMsg.raiseMonthly.rationale':
+    'متوقع تصرف أكتر من خطتها بـ {pct}، لكن العائد {roas} أحسن من الهدف. ادعمها بدل ما تكتم حملة كسبانة.',
+  'recMsg.lower.title': 'قلّل الميزانية اليومية لـ {name} لـ {amount}',
+  'recMsg.lower.rationale': 'متوقع تصرف {amount} زيادة عن خطتها وهي مش جايبة الهدف (العائد {roas} والهدف {goal}).',
+  'recMsg.raiseDaily.title': 'زوّد الميزانية اليومية لـ {name} لـ {amount}',
+  'recMsg.raiseDaily.rationale':
+    'بتصرف أقل من الخطة ({pct} منها) وهي جايبة عائد أحسن من الهدف. فيه {amount} من الميزانية المخططة مش هتتصرف.',
+  'recMsg.creative.title': 'جدّد الإعلان "{name}" (الجمهور زهق منه)',
+  'recMsg.creative.rationale':
+    'التكرار {freq} ونسبة الضغط (CTR) {ctr} مقارنة بالأسبوع اللي فات في {campaign}. نزّل 2-3 نسخ جديدة بنفس الفكرة.',
+  'recMsg.label.netLoss': 'خسارة صافية هتتجنبها / شهر',
+  'recMsg.label.extraRevenue': 'إيرادات إضافية / شهر',
+  'recMsg.label.atRisk': 'إيرادات معرضة للخطر / شهر',
+  'recMsg.label.protected': 'إيرادات هتحافظ عليها / شهر (تقدير 10%)',
+  'recMsg.label.revenueKept': 'إيرادات هتفضل معاك / شهر',
+  'recMsg.label.overspend': 'صرف زيادة هتتجنبه',
+  'recMsg.label.recovered': 'إيرادات هترجع / شهر',
 
   'settings.subtitle': 'الأهداف بتحدد ألوان الحالة والتنبيهات والتوصيات. الميزانيات الشهرية بتحدد الوتيرة.',
   'settings.goals': 'أهداف الحسابات',
