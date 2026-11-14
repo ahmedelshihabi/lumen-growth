@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: #fafafa;
+}
+
+html.dark,
+html.dark body {
+  background: #09090b;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+}
+
+/* Recharts: no focus outline box on click */
+.recharts-wrapper *:focus,
+.recharts-surface:focus {
+  outline: none;
+}
