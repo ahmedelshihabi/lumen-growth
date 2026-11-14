@@ -5,6 +5,7 @@ import type { Severity } from '../rules/anomalies';
 import { CHANNEL_LABEL, channelColor } from '../lib/colors';
 import { useApp, type RangeDays } from '../state/AppContext';
 import { IconArrowDown, IconArrowUp } from './icons';
+import { useI18n } from '../i18n';
 
 export function cx(...c: (string | false | null | undefined)[]) {
   return c.filter(Boolean).join(' ');
@@ -24,7 +25,7 @@ export function Card({ children, className, title, action }: { children: ReactNo
   );
 }
 
-export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: ReactNode; actions?: ReactNode }) {
+export function PageHeader({ title, subtitle, actions }: { title: ReactNode; subtitle?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
       <div className="min-w-0">
@@ -46,19 +47,20 @@ export function ChannelBadge({ channel }: { channel: Channel }) {
   );
 }
 
-const HEALTH_STYLE: Record<Health, { label: string; dot: string; pill: string }> = {
-  good: { label: 'On target', dot: 'bg-emerald-500', pill: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20' },
-  warning: { label: 'Near target', dot: 'bg-amber-500', pill: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20' },
-  critical: { label: 'Off target', dot: 'bg-red-500', pill: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/20' },
-  inactive: { label: 'No delivery', dot: 'bg-zinc-400', pill: 'bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-600/30' },
+const HEALTH_STYLE: Record<Health, { dot: string; pill: string }> = {
+  good: { dot: 'bg-emerald-500', pill: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20' },
+  warning: { dot: 'bg-amber-500', pill: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20' },
+  critical: { dot: 'bg-red-500', pill: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/20' },
+  inactive: { dot: 'bg-zinc-400', pill: 'bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-600/30' },
 };
 
 export function HealthPill({ health }: { health: Health }) {
+  const { t } = useI18n();
   const s = HEALTH_STYLE[health];
   return (
     <span className={cx('inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', s.pill)}>
       <span className={cx('h-1.5 w-1.5 rounded-full', s.dot)} />
-      {s.label}
+      {t(`health.${health}`)}
     </span>
   );
 }
@@ -80,21 +82,23 @@ const SEVERITY_STYLE: Record<Severity, string> = {
 };
 
 export function SeverityBadge({ severity }: { severity: Severity }) {
+  const { t } = useI18n();
   return (
     <span className={cx('inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', SEVERITY_STYLE[severity])}>
-      {severity}
+      {t(`severity.${severity}`)}
     </span>
   );
 }
 
-export function StatusBadge({ status }: { status: string }) {
+export function StatusBadge({ status }: { status: 'ACTIVE' | 'LEARNING' | 'PAUSED' }) {
+  const { t } = useI18n();
   const style =
     status === 'ACTIVE'
       ? 'text-emerald-700 dark:text-emerald-400'
       : status === 'LEARNING'
         ? 'text-sky-700 dark:text-sky-400'
         : 'text-zinc-500 dark:text-zinc-400';
-  return <span className={cx('text-xs font-medium', style)}>{status.charAt(0) + status.slice(1).toLowerCase()}</span>;
+  return <span className={cx('text-xs font-medium', style)}>{t(`status.${status}`)}</span>;
 }
 
 /** Change vs previous period. `goodWhenUp` decides colour; arrow shows direction. */
@@ -111,7 +115,7 @@ export function Delta({ value, goodWhenUp = true }: { value: number | null; good
       )}
     >
       {up ? <IconArrowUp /> : <IconArrowDown />}
-      {Math.abs(value * 100).toFixed(1)}%
+      <span dir="ltr">{Math.abs(value * 100).toFixed(1)}%</span>
     </span>
   );
 }
@@ -121,7 +125,7 @@ const RANGE_OPTIONS: RangeDays[] = [7, 14, 30, 90];
 export function RangePicker() {
   const { rangeDays, setRangeDays } = useApp();
   return (
-    <div role="radiogroup" aria-label="Date range" className="inline-flex rounded-lg border border-zinc-200 bg-white p-0.5 text-sm dark:border-zinc-700 dark:bg-zinc-900">
+    <div role="radiogroup" aria-label="Date range" dir="ltr" className="inline-flex rounded-lg border border-zinc-200 bg-white p-0.5 text-sm dark:border-zinc-700 dark:bg-zinc-900">
       {RANGE_OPTIONS.map((d) => (
         <button
           key={d}
@@ -160,7 +164,7 @@ export function Select<T extends string>({
         aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value as T)}
-        className="h-9 rounded-lg border border-zinc-200 bg-white px-2.5 pr-8 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+        className="h-9 rounded-lg border border-zinc-200 bg-white ps-2.5 pe-8 text-sm text-zinc-800 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
       >
         {options.map((o) => (
           <option key={o.value} value={o.value}>

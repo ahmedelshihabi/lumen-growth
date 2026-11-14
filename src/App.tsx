@@ -1,56 +1,66 @@
-import { useMemo } from 'react';
-import { Layout } from './components/Layout';
-import { useHashRoute, type Route } from './lib/useHashRoute';
-import { useApp } from './state/AppContext';
-import { detectAnomalies } from './rules/anomalies';
-import { generateRecommendations } from './rules/recommendations';
-import Overview from './pages/Overview';
-import Campaigns from './pages/Campaigns';
-import Pacing from './pages/Pacing';
-import Creatives from './pages/Creatives';
-import Alerts from './pages/Alerts';
-import Recommendations from './pages/Recommendations';
-import Settings from './pages/Settings';
+import { useEffect, useMemo } from 'react';
+import AppShell from './AppShell';
+import { appRouteFromPath, navigate, usePath } from './lib/router';
+import { supabase } from './lib/supabase';
+import { getDataSource, type DataSource } from './data/source';
+import { SupabaseDataSource } from './data/supabaseSource';
+import { AppProvider } from './state/AppContext';
+import { useSession } from './state/SessionContext';
+import { useI18n } from './i18n';
+import Landing from './pages/public/Landing';
+import Pricing from './pages/public/Pricing';
+import Login from './pages/public/Login';
+import Admin from './pages/Admin';
 
-const PAGES: Record<Route, () => JSX.Element> = {
-  overview: Overview,
-  campaigns: Campaigns,
-  pacing: Pacing,
-  creatives: Creatives,
-  alerts: Alerts,
-  recommendations: Recommendations,
-  settings: Settings,
-};
+function FullPageSpinner() {
+  const { t } = useI18n();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-zinc-50 text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400" aria-busy="true">
+      {t('common.loading')}
+    </div>
+  );
+}
+
+function Redirect({ to }: { to: string }) {
+  useEffect(() => navigate(to, { replace: true }), [to]);
+  return <FullPageSpinner />;
+}
+
+/** Authenticated area: picks the DataSource (demo -> mock, live -> Supabase) and mounts the app. */
+function Authed({ children }: { children: (source: DataSource) => JSX.Element }) {
+  const session = useSession();
+  const source = useMemo<DataSource | null>(() => {
+    if (session.mode === 'demo') return getDataSource();
+    if (supabase && session.workspace) return new SupabaseDataSource(supabase, session.workspace.id);
+    return null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.mode, session.workspace?.id]);
+
+  if (session.loading) return <FullPageSpinner />;
+  if (!session.user) return <Redirect to={`/login?next=${encodeURIComponent(window.location.pathname)}`} />;
+  if (!source) return <FullPageSpinner />;
+  return children(source);
+}
 
 export default function App() {
-  const route = useHashRoute();
-  const { data, error, rulesInput } = useApp();
+  const path = usePath();
 
-  const badges = useMemo(() => {
-    if (!rulesInput) return {};
-    return {
-      alerts: detectAnomalies(rulesInput).length,
-      recommendations: generateRecommendations(rulesInput).length,
-    };
-  }, [rulesInput]);
+  if (path === '/') return <Landing />;
+  if (path === '/pricing') return <Pricing />;
+  if (path === '/login') return <Login />;
+  if (path === '/admin') return <Authed>{() => <Admin />}</Authed>;
 
-  const Page = PAGES[route];
-
-  return (
-    <Layout route={route} badges={badges}>
-      {error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
-          Failed to load data: {error}
-        </div>
-      ) : !data ? (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-busy="true">
-          {Array.from({ length: 6 }, (_, i) => (
-            <div key={i} className="h-28 animate-pulse rounded-xl bg-zinc-200/70 dark:bg-zinc-800/70" />
-          ))}
-        </div>
-      ) : (
-        <Page />
-      )}
-    </Layout>
-  );
+  const route = appRouteFromPath(path);
+  if (route) {
+    return (
+      <Authed>
+        {(source) => (
+          <AppProvider source={source}>
+            <AppShell route={route} />
+          </AppProvider>
+        )}
+      </Authed>
+    );
+  }
+  return <Redirect to="/" />;
 }

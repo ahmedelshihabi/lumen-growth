@@ -34,10 +34,25 @@ export function localToday(): ISODate {
   return toISO(new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())));
 }
 
+let dateLocale = 'en-US';
+/** Set by I18nProvider when the UI language changes. */
+export function setDateLocale(l: string) {
+  dateLocale = l;
+}
+
 export function formatShortDate(s: ISODate): string {
-  return parseISO(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return parseISO(s).toLocaleDateString(dateLocale, { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 export function formatMonth(s: ISODate): string {
-  return parseISO(s).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return parseISO(s).toLocaleDateString(dateLocale, { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
+
+/** Localised date for timestamps (billing, sync times). */
+export function formatDateTime(iso: string | null | undefined, withTime = false): string {
+  if (!iso) return '-';
+  const d = new Date(iso);
+  return withTime
+    ? d.toLocaleString(dateLocale, { dateStyle: 'medium', timeStyle: 'short' })
+    : d.toLocaleDateString(dateLocale, { dateStyle: 'medium' });
 }

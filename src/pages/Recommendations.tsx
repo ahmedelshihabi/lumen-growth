@@ -2,18 +2,9 @@ import { useMemo, useState } from 'react';
 import { Card, ChannelBadge, EmptyState, PageHeader, StatCard, cx } from '../components/ui';
 import { IconCheck } from '../components/icons';
 import { useLoadedApp } from '../state/AppContext';
-import { generateRecommendations, type Priority, type RecommendationType } from '../rules/recommendations';
+import { generateRecommendations, type Priority } from '../rules/recommendations';
 import { fmtMoney } from '../lib/format';
-
-const TYPE_LABEL: Record<RecommendationType, string> = {
-  shift_budget: 'Budget shift',
-  pause_campaign: 'Pause',
-  raise_budget: 'Scale',
-  lower_budget: 'Budget cut',
-  refresh_creative: 'Creative refresh',
-  fix_delivery: 'Delivery',
-  expand_audience: 'Audience',
-};
+import { useI18n } from '../i18n';
 
 const PRIORITY_STYLE: Record<Priority, string> = {
   high: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/30',
@@ -29,6 +20,7 @@ const IMPACT_STYLE = {
 
 export default function Recommendations() {
   const { rulesInput } = useLoadedApp();
+  const { t, lang } = useI18n();
   const recs = useMemo(() => generateRecommendations(rulesInput), [rulesInput]);
   const [done, setDone] = useState<Set<string>>(new Set());
 
@@ -46,21 +38,22 @@ export default function Recommendations() {
   return (
     <>
       <PageHeader
-        title="Recommendations"
-        subtitle="Deterministic rules over the last 14 days, account goals, pacing, anomalies and creative fatigue. Impact estimates are monthly and deliberately conservative."
+        title={t('nav.recommendations')}
+        subtitle={t('recs.subtitle')}
       />
+      {lang === 'ar' && <p className="-mt-2 mb-4 text-xs text-zinc-500 dark:text-zinc-400">{t('recs.englishNote')}</p>}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Open actions" value={open.length} sub={`${open.filter((r) => r.priority === 'high').length} high priority`} />
-        <StatCard label="Revenue upside / mo" value={fmtMoney(sum('revenue'))} tone="green" />
-        <StatCard label="Spend savings / mo" value={fmtMoney(sum('savings'))} />
-        <StatCard label="Revenue at risk / mo" value={fmtMoney(sum('protect'))} tone={sum('protect') > 0 ? 'amber' : undefined} />
+        <StatCard label={t('recs.open')} value={open.length} sub={t('recs.highPriority', { n: open.filter((r) => r.priority === 'high').length })} />
+        <StatCard label={t('recs.revenueUpside')} value={fmtMoney(sum('revenue'))} tone="green" />
+        <StatCard label={t('recs.savings')} value={fmtMoney(sum('savings'))} />
+        <StatCard label={t('recs.atRisk')} value={fmtMoney(sum('protect'))} tone={sum('protect') > 0 ? 'amber' : undefined} />
       </div>
 
       <div className="mt-4 space-y-3">
         {recs.length === 0 && (
           <Card>
-            <EmptyState>Nothing to do - every campaign is on goal.</EmptyState>
+            <EmptyState>{t('recs.none')}</EmptyState>
           </Card>
         )}
         {recs.map((r) => {
@@ -71,18 +64,18 @@ export default function Recommendations() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={cx('rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-inset', PRIORITY_STYLE[r.priority])}>
-                      {r.priority}
+                      {t(`priority.${r.priority}`)}
                     </span>
-                    <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{TYPE_LABEL[r.type]}</span>
+                    <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">{t(`rec.${r.type}`)}</span>
                     {r.channels.map((c) => (
                       <ChannelBadge key={c} channel={c} />
                     ))}
                   </div>
-                  <h3 className={cx('mt-1.5 text-[15px] font-semibold leading-snug', isDone && 'line-through')}>{r.title}</h3>
-                  <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{r.rationale}</p>
+                  <h3 dir="auto" className={cx('mt-1.5 text-[15px] font-semibold leading-snug', isDone && 'line-through')}>{r.title}</h3>
+                  <p dir="auto" className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{r.rationale}</p>
                 </div>
                 <div className="flex items-center justify-between gap-4 sm:w-48 sm:flex-col sm:items-end sm:justify-start">
-                  <div className="sm:text-right">
+                  <div className="sm:text-end">
                     <div className={cx('text-lg font-semibold tabular-nums', IMPACT_STYLE[r.impact.kind])}>
                       {r.impact.kind === 'revenue' ? '+' : ''}
                       {fmtMoney(r.impact.monthly)}
@@ -99,7 +92,7 @@ export default function Recommendations() {
                     )}
                   >
                     <IconCheck width={14} height={14} />
-                    {isDone ? 'Done' : 'Mark done'}
+                    {isDone ? t('recs.done') : t('recs.markDone')}
                   </button>
                 </div>
               </div>
