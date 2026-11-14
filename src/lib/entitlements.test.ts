@@ -44,6 +44,12 @@ describe('entitlements', () => {
     expect(routeAccess('alerts', e)).toBe('upgrade');
   });
 
+  it('offers ad creation on the Growth trial but not on Starter', () => {
+    expect(routeAccess('create', computeEntitlements(sub({}), DEMO_PLANS, now))).toBe('ok');
+    expect(routeAccess('create', computeEntitlements(sub({ plan_id: 'starter', status: 'active' }), DEMO_PLANS, now))).toBe('upgrade');
+    expect(cheapestPlanWith('create_ads', DEMO_PLANS)?.id).toBe('growth');
+  });
+
   it('suggests the cheapest plan with a feature', () => {
     expect(cheapestPlanWith('alerts', DEMO_PLANS)?.id).toBe('starter');
     expect(cheapestPlanWith('creatives', DEMO_PLANS)?.id).toBe('growth');

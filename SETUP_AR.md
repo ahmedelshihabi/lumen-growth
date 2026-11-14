@@ -84,6 +84,7 @@ npx supabase secrets set --env-file supabase/functions/.env
 npx supabase functions deploy paymob-checkout
 npx supabase functions deploy meta-oauth-callback
 npx supabase functions deploy admin-activate
+npx supabase functions deploy meta-create-ad
 npx supabase functions deploy paymob-webhook --no-verify-jwt
 npx supabase functions deploy meta-sync --no-verify-jwt
 ```
@@ -154,6 +155,24 @@ select cron.schedule('lumen-expire-subscriptions', '30 0 * * *', $$ select publi
 4. بعدها يدخل التطبيق → **ربط ميتا** → يوافق → يختار الحسابات الإعلانية.
 
 > الـ Access token بيعيش حوالي 60 يوم. التطبيق بيعرض تاريخ الانتهاء في صفحة "ربط ميتا"، والعميل يضغط "إعادة الربط" قبله.
+
+### 2.2.1 إنشاء الإعلانات من جوه لومن (صفحة «إنشاء إعلان»)
+
+البرنامج دلوقتي بيطلب من ميتا ٤ صلاحيات وقت الربط:
+
+| الصلاحية | بنستخدمها في إيه |
+|---|---|
+| `ads_read` | قراءة الحسابات والأرقام (اللوحة والتنبيهات والتوصيات) |
+| `ads_management` | إنشاء حملة ومجموعة إعلانات وإعلان |
+| `pages_show_list` | عرض صفحات فيسبوك اللي الإعلان هيظهر باسمها |
+| `pages_read_engagement` | قراءة بيانات الصفحة عشان الإعلان يتنشر باسمها |
+
+- في **Development mode** الصلاحيات دي بتشتغل من غير مراجعة، بس للناس اللي ليهم دور على التطبيق (Admin / Developer / Tester).
+- أي عميل ربط قبل التحديث ده لازم **يربط ميتا تاني** عشان يدي الصلاحيات الجديدة، وإلا هتظهرله رسالة «اربط ميتا تاني».
+- كل حاجة بتتعمل **متوقفة (PAUSED)**. مفيش أي صرف لحد ما العميل يشغّلها بنفسه من Ads Manager.
+- الميزة متاحة في باقات **Growth** و**Agency** (وفي التجربة المجانية). لو قاعدة البيانات اتعملت قبل التحديث، شغّل في SQL Editor الملف `supabase/migrations/20261115000001_create_ads.sql`.
+- انشر الـ Function الجديدة: `npx supabase functions deploy meta-create-ad`
+- للبيع المفتوح لازم **Advanced Access** لـ `ads_management` و`pages_show_list` و`pages_read_engagement` كمان، مش `ads_read` بس (شوف 2.3). ومراجعة `ads_management` أصعب، فجهّز فيديو بيوضح إنشاء الإعلان خطوة بخطوة.
 
 ### 2.3 لما الشركة تتسجل: Business Verification و App Review
 علشان أي حد (مش بس الـ testers) يقدر يربط، محتاج تقلب التطبيق **Live** وتاخد **Advanced Access** لصلاحية `ads_read`. ده هيحتاج:

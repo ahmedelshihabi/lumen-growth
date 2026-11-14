@@ -61,7 +61,7 @@ describe('helpers', () => {
   it('builds the login dialog URL with a pinned version', () => {
     const u = new URL(metaOAuthDialogUrl('123', 'https://app.example.com/app/connect', 'st'));
     expect(u.pathname).toBe(`/${GRAPH_VERSION}/dialog/oauth`);
-    expect(u.searchParams.get('scope')).toBe('ads_read');
+    expect(u.searchParams.get('scope')).toBe('ads_read,ads_management,pages_show_list,pages_read_engagement');
     expect(u.searchParams.get('redirect_uri')).toBe('https://app.example.com/app/connect');
   });
 });
