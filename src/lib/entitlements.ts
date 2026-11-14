@@ -29,6 +29,7 @@ export const ROUTE_FEATURE: Record<AppRoute, FeatureKey | 'unlocked' | 'active'>
   creatives: 'creatives',
   alerts: 'alerts',
   recommendations: 'recommendations',
+  create: 'create_ads',
   settings: 'active',
   connect: 'active',
   billing: 'unlocked',

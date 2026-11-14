@@ -1,5 +1,13 @@
 /** Mirrors the `plans` seed in supabase/migrations. Used by /pricing in Demo mode. */
-export type FeatureKey = 'overview' | 'campaigns' | 'pacing' | 'alerts' | 'creatives' | 'recommendations' | 'priority_support';
+export type FeatureKey =
+  | 'overview'
+  | 'campaigns'
+  | 'pacing'
+  | 'alerts'
+  | 'creatives'
+  | 'recommendations'
+  | 'create_ads'
+  | 'priority_support';
 
 export interface Plan {
   id: string;
@@ -17,7 +25,7 @@ export interface Plan {
 
 const BASE: FeatureKey[] = ['overview', 'campaigns'];
 const STARTER: FeatureKey[] = [...BASE, 'pacing', 'alerts'];
-const GROWTH: FeatureKey[] = [...STARTER, 'creatives', 'recommendations'];
+const GROWTH: FeatureKey[] = [...STARTER, 'creatives', 'recommendations', 'create_ads'];
 
 export const DEMO_PLANS: Plan[] = [
   { id: 'free', tier: 'free', name_en: 'Free', name_ar: 'مجاني', currency: 'EGP', price_minor: 0, interval_days: 30, max_ad_accounts: 1, max_members: 1, features: BASE, sort_order: 0 },
@@ -26,7 +34,7 @@ export const DEMO_PLANS: Plan[] = [
   { id: 'agency', tier: 'agency', name_en: 'Agency', name_ar: 'إيجنسي', currency: 'EGP', price_minor: 699900, interval_days: 30, max_ad_accounts: 25, max_members: 15, features: [...GROWTH, 'priority_support'], sort_order: 3 },
 ];
 
-export const ALL_FEATURES: FeatureKey[] = ['overview', 'campaigns', 'pacing', 'alerts', 'creatives', 'recommendations', 'priority_support'];
+export const ALL_FEATURES: FeatureKey[] = ['overview', 'campaigns', 'pacing', 'alerts', 'creatives', 'recommendations', 'create_ads', 'priority_support'];
 
 export function formatPlanPrice(p: Pick<Plan, 'price_minor' | 'currency'>, locale: string): string {
   return new Intl.NumberFormat(locale, { style: 'currency', currency: p.currency, maximumFractionDigits: 0 }).format(p.price_minor / 100);

@@ -143,3 +143,10 @@ export const IconLogout = (p: P) => (
     <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l-4-4 4-4M6 12h10" />
   </svg>
 );
+
+export const IconPlus = (p: P) => (
+  <svg {...base(p)}>
+    <rect x="3.5" y="3.5" width="17" height="17" rx="3" />
+    <path d="M12 8v8M8 12h8" />
+  </svg>
+);

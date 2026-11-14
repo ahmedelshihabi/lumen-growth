@@ -9,8 +9,21 @@
 export const GRAPH_VERSION = 'v24.0';
 export const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
-/** Scopes requested at login. ads_read is enough to list ad accounts and read insights. */
-export const META_SCOPES = ['ads_read'];
+/**
+ * Scopes requested at login.
+ * - ads_read: list ad accounts and read insights (dashboard, alerts, recommendations).
+ * - ads_management: create campaigns / ad sets / creatives / ads (the "Create ad" page).
+ * - pages_show_list: list the Facebook Pages the user manages (an ad must run as a Page).
+ * - pages_read_engagement: read Page details needed to publish link ads as that Page.
+ * While the app is in Development mode, app admins/developers/testers can grant all of
+ * these without App Review; selling to the public needs Advanced Access via App Review.
+ */
+// VERIFY: whether pages_read_engagement is still required for object_story_spec link ads
+// in the current Graph version, or pages_show_list + ads_management alone suffice.
+export const META_SCOPES = ['ads_read', 'ads_management', 'pages_show_list', 'pages_read_engagement'];
+
+/** Scope needed by the ad-creation flow; older connections (ads_read only) must reconnect. */
+export const META_CREATE_SCOPES = ['ads_management', 'pages_show_list'];
 
 /** Facebook Login dialog URL (Authorization Code flow). */
 export function metaOAuthDialogUrl(appId: string, redirectUri: string, state: string): string {
@@ -103,10 +116,18 @@ export function mapInsightRow(row: MetaInsightRow, level: 'campaign' | 'ad'): In
 
 /** Meta budgets are in the account currency's minor unit (cents) as strings. */
 // VERIFY: a few currencies (e.g. JPY, KRW) have offset 1, not 100. EGP/AED/SAR/USD use 100.
+export function currencyOffset(currency: string): number {
+  return ['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'TWD', 'HUF'].includes(currency.toUpperCase()) ? 1 : 100;
+}
+
 export function budgetToMajor(minor: string | number | undefined | null, currency: string): number | null {
   if (minor === undefined || minor === null || minor === '') return null;
-  const zeroDecimal = ['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'TWD', 'HUF'].includes(currency.toUpperCase());
-  return num(minor) / (zeroDecimal ? 1 : 100);
+  return num(minor) / currencyOffset(currency);
+}
+
+/** Major units (e.g. 150.5 EGP) -> Meta minor units (15050), rounded to an integer. */
+export function majorToMinor(major: number, currency: string): number {
+  return Math.round(major * currencyOffset(currency));
 }
 
 export function mapObjective(objective: string | undefined): 'SALES' | 'LEADS' | 'TRAFFIC' | 'AWARENESS' {

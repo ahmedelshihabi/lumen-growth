@@ -27,3 +27,6 @@ verify_jwt = true
 
 [functions.admin-activate]
 verify_jwt = true
+
+[functions.meta-create-ad]
+verify_jwt = true

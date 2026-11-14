@@ -19,6 +19,7 @@ import {
   IconMenu,
   IconMoon,
   IconOverview,
+  IconPlus,
   IconPacing,
   IconRecs,
   IconSettings,
@@ -33,6 +34,7 @@ const NAV: { route: AppRoute; label: DictKey; icon: (p: object) => JSX.Element }
   { route: 'creatives', label: 'nav.creatives', icon: IconCreatives },
   { route: 'alerts', label: 'nav.alerts', icon: IconAlerts },
   { route: 'recommendations', label: 'nav.recommendations', icon: IconRecs },
+  { route: 'create', label: 'nav.create', icon: IconPlus },
   { route: 'settings', label: 'nav.settings', icon: IconSettings },
 ];
 

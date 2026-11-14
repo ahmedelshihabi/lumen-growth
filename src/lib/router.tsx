@@ -48,11 +48,12 @@ export type AppRoute =
   | 'creatives'
   | 'alerts'
   | 'recommendations'
+  | 'create'
   | 'settings'
   | 'billing'
   | 'connect';
 
-export const APP_ROUTES: AppRoute[] = ['overview', 'campaigns', 'pacing', 'creatives', 'alerts', 'recommendations', 'settings', 'billing', 'connect'];
+export const APP_ROUTES: AppRoute[] = ['overview', 'campaigns', 'pacing', 'creatives', 'alerts', 'recommendations', 'create', 'settings', 'billing', 'connect'];
 
 export function appRouteFromPath(path: string): AppRoute | null {
   if (path === '/app') return 'overview';

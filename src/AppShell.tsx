@@ -18,6 +18,7 @@ import Recommendations from './pages/Recommendations';
 import Settings from './pages/Settings';
 import Billing from './pages/Billing';
 import Connect from './pages/Connect';
+import CreateAd from './pages/CreateAd';
 
 /** Pages that render the loaded dataset (need data, show "connect Meta" when empty). */
 const DATA_PAGES: Partial<Record<AppRoute, () => JSX.Element>> = {
@@ -34,6 +35,7 @@ const DATA_PAGES: Partial<Record<AppRoute, () => JSX.Element>> = {
 const ACCOUNT_PAGES: Partial<Record<AppRoute, () => JSX.Element>> = {
   billing: Billing,
   connect: Connect,
+  create: CreateAd,
 };
 
 export default function AppShell({ route }: { route: AppRoute }) {

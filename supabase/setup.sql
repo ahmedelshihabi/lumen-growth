@@ -30,13 +30,13 @@ create table public.plans (
 );
 
 comment on column public.plans.features is
-  'Feature keys the UI gates on: overview, campaigns, pacing, alerts, creatives, recommendations, priority_support';
+  'Feature keys the UI gates on: overview, campaigns, pacing, alerts, creatives, recommendations, create_ads, priority_support';
 
 insert into public.plans (id, tier, name_en, name_ar, currency, price_minor, max_ad_accounts, max_members, features, sort_order) values
   ('free',    'free',    'Free',    'مجاني',  'EGP', 0,      1,  1,  '{overview,campaigns}', 0),
   ('starter', 'starter', 'Starter', 'ستارتر', 'EGP', 99900,  2,  2,  '{overview,campaigns,pacing,alerts}', 1),
-  ('growth',  'growth',  'Growth',  'جروث',   'EGP', 249900, 5,  5,  '{overview,campaigns,pacing,alerts,creatives,recommendations}', 2),
-  ('agency',  'agency',  'Agency',  'إيجنسي', 'EGP', 699900, 25, 15, '{overview,campaigns,pacing,alerts,creatives,recommendations,priority_support}', 3);
+  ('growth',  'growth',  'Growth',  'جروث',   'EGP', 249900, 5,  5,  '{overview,campaigns,pacing,alerts,creatives,recommendations,create_ads}', 2),
+  ('agency',  'agency',  'Agency',  'إيجنسي', 'EGP', 699900, 25, 15, '{overview,campaigns,pacing,alerts,creatives,recommendations,create_ads,priority_support}', 3);
 -- To sell in the Gulf later, add rows such as:
 --   ('growth_aed', 'growth', 'Growth', 'جروث', 'AED', 19900, 5, 5, '{...}', 2)
 
