@@ -1,0 +1,29 @@
+# Minimal Supabase CLI config. `supabase init` would generate a fuller file;
+# these sections are what this project relies on.
+project_id = "lumen-growth"
+
+[auth]
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173/app", "https://YOUR-DOMAIN/app"]
+
+[auth.external.google]
+enabled = true
+client_id = "env(GOOGLE_CLIENT_ID)"
+secret = "env(GOOGLE_CLIENT_SECRET)"
+
+# Paymob calls the webhook without a Supabase JWT; the HMAC authenticates it.
+[functions.paymob-webhook]
+verify_jwt = false
+
+# meta-sync accepts either a user JWT (checked in code) or the x-cron-secret header.
+[functions.meta-sync]
+verify_jwt = false
+
+[functions.paymob-checkout]
+verify_jwt = true
+
+[functions.meta-oauth-callback]
+verify_jwt = true
+
+[functions.admin-activate]
+verify_jwt = true
