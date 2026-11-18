@@ -2,12 +2,14 @@ import { useMemo, useState } from 'react';
 import { Card, ChannelBadge, EmptyState, PageHeader, StatCard, cx } from '../components/ui';
 import { IconCheck } from '../components/icons';
 import { useLoadedApp } from '../state/AppContext';
-import { generateRecommendations, type Priority } from '../rules/recommendations';
+import { generateRecommendations, type Priority, type Recommendation } from '../rules/recommendations';
 import { fmtMoney } from '../lib/format';
 import { formatShortDate } from '../lib/dates';
 import type { Confidence } from '../rules/evaluate';
 import { recKey } from '../rules/keys';
 import { HiddenList, ItemActions } from '../components/ItemActions';
+import { AppliedList, ApplyDialog, type AppliedRow } from '../components/ApplyActions';
+import { useSession } from '../state/SessionContext';
 import { useI18n } from '../i18n';
 
 const PRIORITY_STYLE: Record<Priority, string> = {
@@ -35,6 +37,9 @@ export default function Recommendations() {
   const recs = generated.filter((r) => !isHidden(recKey(r)));
   const hidden = generated.filter((r) => isHidden(recKey(r)));
   const [done, setDone] = useState<Set<string>>(new Set());
+  const [applying, setApplying] = useState<Recommendation | null>(null);
+  const [applied, setApplied] = useState<AppliedRow[]>([]);
+  const { canEdit } = useSession();
 
   const open = recs.filter((r) => !done.has(r.id));
   const sum = (k: 'revenue' | 'savings' | 'protect') => open.filter((r) => r.impact.kind === k).reduce((s, r) => s + r.impact.monthly, 0);
@@ -115,13 +120,34 @@ export default function Recommendations() {
                     <IconCheck width={14} height={14} />
                     {isDone ? t('recs.done') : t('recs.markDone')}
                   </button>
+                  {r.actions?.length && canEdit && !isDone ? (
+                    <button
+                      type="button"
+                      onClick={() => setApplying(r)}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-brand-700"
+                    >
+                      {t('apply.button')}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </Card>
           );
         })}
       </div>
+      <AppliedList local={applied} onUndone={(id) => setApplied((rows) => rows.map((x) => (x.id === id ? { ...x, undone_at: new Date().toISOString() } : x)))} />
       <HiddenList items={hidden.map((r) => ({ key: recKey(r), title: t(r.titleMsg.key, r.titleMsg.vars) }))} />
+      {applying && (
+        <ApplyDialog
+          rec={applying}
+          onClose={() => setApplying(null)}
+          onApplied={(rows) => {
+            setApplied((prev) => [...rows, ...prev]);
+            setDone((d) => new Set(d).add(applying.id));
+            setApplying(null);
+          }}
+        />
+      )}
     </>
   );
 }

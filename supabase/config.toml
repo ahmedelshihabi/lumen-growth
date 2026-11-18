@@ -30,3 +30,6 @@ verify_jwt = true
 
 [functions.meta-create-ad]
 verify_jwt = true
+
+[functions.meta-apply]
+verify_jwt = true

@@ -39,6 +39,11 @@ export interface Recommendation {
     label: string;
     labelMsg: Msg;
   };
+  /**
+   * Changes Lumen can apply on Meta for this recommendation (after the user confirms).
+   * Absent = manual (creative refresh, audience, delivery fixes, monthly plan).
+   */
+  actions?: RecAction[];
   /** How much to trust it, and the data it is based on. */
   confidence: Confidence;
   window: DateRange & { activeDays: number };
@@ -46,6 +51,19 @@ export interface Recommendation {
   creativeIds: string[];
   channels: Channel[];
 }
+
+export type RecAction =
+  | { op: 'pause' | 'activate'; campaignId: string; campaignName: string }
+  | { op: 'set_daily_budget'; campaignId: string; campaignName: string; from: number; to: number };
+
+/** Budget changes are rounded to whole units of the account currency. */
+const budgetAction = (c: { id: string; name: string; dailyBudget: number }, to: number): RecAction => ({
+  op: 'set_daily_budget',
+  campaignId: c.id,
+  campaignName: c.name,
+  from: c.dailyBudget,
+  to: Math.max(1, Math.round(to)),
+});
 
 export interface RecommendationConfig {
   windowDays: number;
@@ -160,6 +178,7 @@ export function generateRecommendations(
         ? impact('savings', monthlyLoss, msg('recMsg.label.netLoss'))
         : impact('savings', monthlySpend * (1 - s.ratio!), msg('recMsg.label.wasted')),
       ...basis(s),
+      actions: [{ op: 'pause', campaignId: s.campaign.id, campaignName: s.campaign.name }],
       campaignIds: [s.campaign.id],
       creativeIds: [],
       channels: [s.campaign.channel],
@@ -201,6 +220,10 @@ export function generateRecommendations(
         ),
         impact: impact('revenue', gain, msg('recMsg.label.extraRevenue')),
         ...basis(loser),
+        actions:
+          loser.campaign.dailyBudget > 0 && winner.campaign.dailyBudget > 0
+            ? [budgetAction(loser.campaign, loser.campaign.dailyBudget - shiftPerDay), budgetAction(winner.campaign, winner.campaign.dailyBudget + shiftPerDay)]
+            : undefined,
         campaignIds: [loser.campaign.id, winner.campaign.id],
         creativeIds: [],
         channels: [...new Set([loser.campaign.channel, winner.campaign.channel])],
@@ -216,6 +239,7 @@ export function generateRecommendations(
         ),
         impact: impact('savings', monthly * (1 - loser.ratio!), msg('recMsg.label.wasted')),
         ...basis(loser),
+        actions: loser.campaign.dailyBudget > 0 ? [budgetAction(loser.campaign, loser.campaign.dailyBudget * (1 - config.cutShare))] : undefined,
         campaignIds: [loser.campaign.id],
         creativeIds: [],
         channels: [loser.campaign.channel],
@@ -303,6 +327,7 @@ export function generateRecommendations(
         ),
         impact: impact('savings', overage, msg('recMsg.label.overspend')),
         ...basis(s),
+        actions: s.campaign.dailyBudget > 0 && p.recommendedDaily > 0 ? [budgetAction(s.campaign, p.recommendedDaily)] : undefined,
         campaignIds: [s.campaign.id],
         creativeIds: [],
         channels: [s.campaign.channel],
@@ -320,6 +345,7 @@ export function generateRecommendations(
         ),
         impact: impact('revenue', gain, msg('recMsg.label.extraRevenue')),
         ...basis(s),
+        actions: s.campaign.dailyBudget > 0 && p.recommendedDaily > 0 ? [budgetAction(s.campaign, p.recommendedDaily)] : undefined,
         campaignIds: [s.campaign.id],
         creativeIds: [],
         channels: [s.campaign.channel],
@@ -357,6 +383,7 @@ export function generateRecommendations(
       impact: impact('revenue', monthly, msg(seasonal ? 'recMsg.label.relaunchSeasonal' : 'recMsg.label.relaunch')),
       confidence,
       window: { ...s.range, activeDays: s.quality.activeDays },
+      actions: [{ op: 'activate', campaignId: s.campaign.id, campaignName: s.campaign.name }],
       campaignIds: [s.campaign.id],
       creativeIds: [],
       channels: [s.campaign.channel],
