@@ -5,6 +5,7 @@ import { loadPlans, useSession } from '../../state/SessionContext';
 import { PlanCards } from '../../components/PlanCards';
 import type { Plan } from '../../lib/plans';
 import { PublicLayout } from './PublicLayout';
+import { env } from '../../lib/supabase';
 
 export default function Pricing() {
   const { t, lang } = useI18n();
@@ -27,7 +28,7 @@ export default function Pricing() {
       <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
         <div className="max-w-2xl">
           <h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{t('pricing.title')}</h1>
-          <p className="mt-3 text-base leading-relaxed text-zinc-600 dark:text-zinc-300">{t('pricing.subtitle')}</p>
+          <p className="mt-3 text-base leading-relaxed text-zinc-600 dark:text-zinc-300">{t(env.paymobEnabled ? 'pricing.subtitle' : 'pricing.subtitleManual')}</p>
         </div>
         <div className="mt-10">
           <PlanCards

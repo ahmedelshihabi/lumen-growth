@@ -6,6 +6,7 @@ import { formatPlanPrice, type Plan } from '../lib/plans';
 import { formatDateTime } from '../lib/dates';
 import { useSession } from '../state/SessionContext';
 import { useI18n } from '../i18n';
+import type { DictKey } from '../i18n/dict';
 
 interface PaymentRow {
   id: string;
@@ -18,13 +19,26 @@ interface PaymentRow {
   period_end: string | null;
 }
 
+const PAY_STATUS = ['pending', 'paid', 'failed', 'refunded', 'cancelled'];
+
+/** Demo mode: a sample of what the history looks like (nothing is stored). */
+const DEMO_PAYMENTS: PaymentRow[] = [
+  { id: 'd2', created_at: new Date(Date.now() - 2 * 86400000).toISOString(), provider: 'manual', plan_id: 'growth', amount_minor: 249900, currency: 'EGP', status: 'paid', period_end: null },
+  { id: 'd1', created_at: new Date(Date.now() - 32 * 86400000).toISOString(), provider: 'manual', plan_id: 'starter', amount_minor: 99900, currency: 'EGP', status: 'paid', period_end: null },
+];
+
 const btn = 'flex h-10 w-full items-center justify-center rounded-lg text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50';
 
 export default function Billing() {
   const { t, lang, locale } = useI18n();
   const session = useSession();
   const { entitlements: ent, subscription, workspace, plans, mode } = session;
-  const [payments, setPayments] = useState<PaymentRow[]>([]);
+  const [payments, setPayments] = useState<PaymentRow[]>(() => (mode === 'demo' ? DEMO_PAYMENTS : []));
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const planName = (id: string) => {
+    const p = plans.find((x) => x.id === id);
+    return p ? (lang === 'ar' ? p.name_ar : p.name_en) : id;
+  };
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -101,6 +115,8 @@ export default function Billing() {
 
   const paid = plans.filter((p) => p.price_minor > 0 && p.currency === (plan?.currency ?? 'EGP'));
   const whatsapp = env.supportWhatsapp.replace(/[^\d]/g, '');
+  // The transfer flow needs somewhere to send money AND a way to tell us about it.
+  const manualReady = Boolean((env.instapayAddress || env.walletNumber) && whatsapp);
 
   return (
     <>
@@ -130,44 +146,61 @@ export default function Billing() {
       </Card>
 
       <h2 className="mb-3 mt-8 text-base font-semibold">{t('billing.choosePlan')}</h2>
-      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">{env.paymobEnabled ? t('billing.paymobMethods') : t('billing.paymobSoon')}</p>
+      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">{env.paymobEnabled ? t('billing.paymobMethods') : t('billing.manualOnly')}</p>
       <PlanCards
         plans={paid}
         currentPlanId={plan?.id}
-        action={(p) => (
-          <button
-            type="button"
-            onClick={() => void payWithPaymob(p)}
-            disabled={!live || !env.paymobEnabled || busy !== null}
-            className={cx(btn, p.tier === 'growth' ? 'bg-brand-600 text-white hover:bg-brand-700' : 'border border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800')}
-          >
-            {busy === p.id ? t('billing.redirecting') : t('billing.payPaymob')}
-          </button>
-        )}
+        action={(p) => {
+          const cls = cx(btn, p.tier === 'growth' ? 'bg-brand-600 text-white hover:bg-brand-700' : 'border border-zinc-300 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800');
+          // Paymob stays wired but hidden until VITE_PAYMOB_ENABLED=true; until then plans are bought by transfer.
+          return env.paymobEnabled ? (
+            <button type="button" onClick={() => void payWithPaymob(p)} disabled={!live || busy !== null} className={cls}>
+              {busy === p.id ? t('billing.redirecting') : t('billing.payPaymob')}
+            </button>
+          ) : manualReady ? (
+            <a href="#manual-payment" className={cx(cls, 'text-center')}>
+              {t('billing.payManual')}
+            </a>
+          ) : null;
+        }}
       />
       {error && <p className="mt-3 text-sm text-red-600">{t('common.error', { message: error })}</p>}
 
+      {/* Only methods that are actually configured are shown (TODO(owner): set VITE_MANUAL_INSTAPAY,
+          VITE_MANUAL_WALLET and VITE_SUPPORT_WHATSAPP in Vercel). Nothing is ever shown as "to be announced". */}
+      {!manualReady && session.profile?.is_platform_admin && (
+        <p className="mt-6 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">{t('billing.adminSetNumbers')}</p>
+      )}
+      {manualReady && (
       <Card className="mt-6" title={t('billing.manualTitle')}>
-        <ol className="list-decimal space-y-3 px-4 py-4 ps-9 text-sm text-zinc-700 dark:text-zinc-200">
+        <ol id="manual-payment" className="list-decimal space-y-3 px-4 py-4 ps-9 text-sm text-zinc-700 dark:text-zinc-200">
+          {(env.instapayAddress || env.walletNumber) && (
           <li>
             {t('billing.manualStep1')}
             <ul className="mt-1.5 space-y-1 text-zinc-600 dark:text-zinc-300">
-              <li>
-                <span className="font-medium">{t('billing.manualInstapay')}:</span> <span dir="ltr">{env.instapayAddress || t('billing.manualNotSet')}</span>
-              </li>
-              <li>
-                <span className="font-medium">{t('billing.manualWallet')}:</span> <span dir="ltr">{env.walletNumber || t('billing.manualNotSet')}</span>
-              </li>
+              {env.instapayAddress && (
+                <li>
+                  <span className="font-medium">{t('billing.manualInstapay')}:</span> <span dir="ltr">{env.instapayAddress}</span>
+                </li>
+              )}
+              {env.walletNumber && (
+                <li>
+                  <span className="font-medium">{t('billing.manualWallet')}:</span> <span dir="ltr">{env.walletNumber}</span>
+                </li>
+              )}
             </ul>
           </li>
+          )}
           <li>
-            {t('billing.manualStep2')}{' '}
             {whatsapp ? (
-              <a className="font-medium text-brand-700 hover:underline dark:text-brand-300" dir="ltr" href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer">
-                +{whatsapp}
-              </a>
+              <>
+                {t('billing.manualStep2')}{' '}
+                <a className="font-medium text-brand-700 hover:underline dark:text-brand-300" dir="ltr" href={`https://wa.me/${whatsapp}`} target="_blank" rel="noreferrer">
+                  +{whatsapp}
+                </a>
+              </>
             ) : (
-              t('billing.manualNotSet')
+              t('billing.manualStep2NoWa')
             )}
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-xs text-zinc-500">{t('billing.workspaceId')}</span>
@@ -182,41 +215,68 @@ export default function Billing() {
           <li>{t('billing.manualStep3')}</li>
         </ol>
       </Card>
+      )}
 
       {session.role === 'owner' && plan?.id !== 'free' && (
         <Card className="mt-6">
           <div className="flex flex-wrap items-center gap-3 px-4 py-4">
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium">{t('billing.downgrade')}</div>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400">{t('billing.downgradeBody')}</div>
+              <div className="text-sm font-medium">{t(ent.trialing ? 'billing.downgrade' : 'billing.cancel')}</div>
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">{t(ent.trialing ? 'billing.downgradeBody' : 'billing.cancelBody')}</div>
             </div>
-            <button
-              type="button"
-              onClick={() => void downgrade()}
-              disabled={!live || busy !== null}
-              className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
-            >
-              {t('billing.downgrade')}
-            </button>
+            {confirmCancel ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-medium text-red-700 dark:text-red-300">{t('billing.cancelConfirm', { plan: lang === 'ar' ? plan?.name_ar ?? '' : plan?.name_en ?? '' })}</span>
+                <button
+                  type="button"
+                  onClick={() => void downgrade().then(() => setConfirmCancel(false))}
+                  disabled={!live || busy !== null}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {t('billing.cancelYes')}
+                </button>
+                <button type="button" onClick={() => setConfirmCancel(false)} className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
+                  {t('common.cancel')}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setConfirmCancel(true)}
+                disabled={!live || busy !== null}
+                className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+              >
+                {t(ent.trialing ? 'billing.downgrade' : 'billing.cancel')}
+              </button>
+            )}
           </div>
         </Card>
       )}
 
-      {live && (
+      {(live || payments.length > 0) && (
         <Card className="mt-6" title={t('billing.history')}>
           {payments.length === 0 ? (
             <div className="px-4 py-6 text-sm text-zinc-500">{t('billing.noPayments')}</div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
+                <thead className="bg-zinc-50 text-xs text-zinc-500 dark:bg-zinc-900/60 dark:text-zinc-400">
+                  <tr>
+                    <th className="px-4 py-2 text-start font-medium">{t('billing.h.date')}</th>
+                    <th className="px-4 py-2 text-start font-medium">{t('billing.h.plan')}</th>
+                    <th className="px-4 py-2 text-start font-medium">{t('billing.h.method')}</th>
+                    <th className="px-4 py-2 text-end font-medium">{t('billing.h.amount')}</th>
+                    <th className="px-4 py-2 text-start font-medium">{t('billing.h.status')}</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {payments.map((p) => (
                     <tr key={p.id} className="border-t border-zinc-100 first:border-0 dark:border-zinc-800">
                       <td className="px-4 py-2.5">{formatDateTime(p.created_at, true)}</td>
-                      <td className="px-4 py-2.5">{p.plan_id}</td>
-                      <td className="px-4 py-2.5">{p.provider}</td>
+                      <td className="px-4 py-2.5">{planName(p.plan_id)}</td>
+                      <td className="px-4 py-2.5">{t(p.provider === 'paymob' ? 'billing.provider.paymob' : 'billing.provider.manual')}</td>
                       <td className="px-4 py-2.5 text-end tabular-nums">{formatPlanPrice({ price_minor: p.amount_minor, currency: p.currency }, locale)}</td>
-                      <td className="px-4 py-2.5">{p.status}</td>
+                      <td className="px-4 py-2.5">{PAY_STATUS.includes(p.status) ? t(`billing.payStatus.${p.status}` as DictKey) : p.status}</td>
                     </tr>
                   ))}
                 </tbody>

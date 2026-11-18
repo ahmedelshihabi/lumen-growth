@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Card, PageHeader, cx } from '../components/ui';
+import { Card, ChannelBadge, PageHeader, cx } from '../components/ui';
 import { primaryBtn } from '../components/Gates';
 import { IconLink } from '../components/icons';
 import { env, supabase } from '../lib/supabase';
@@ -278,6 +278,25 @@ export default function Connect() {
           </span>
         </div>
         {error && <div className="border-t border-zinc-100 px-4 py-3 text-sm text-red-600 dark:border-zinc-800">{t('common.error', { message: error })}</div>}
+      </Card>
+
+      {/* Google Ads is built on branch feat/google-ads and goes live once Google approves the developer token. */}
+      <Card className="mt-4" title={t('connect.otherTitle')}>
+        <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          {(['google', 'tiktok'] as const).map((ch) => (
+            <li key={ch} className="flex flex-wrap items-center gap-3 px-4 py-4">
+              <ChannelBadge channel={ch} />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">{t(ch === 'google' ? 'connect.google' : 'connect.tiktok')}</div>
+                <div className="text-xs text-zinc-500 dark:text-zinc-400">{t(ch === 'google' ? 'connect.googleBody' : 'connect.tiktokBody')}</div>
+              </div>
+              <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300" title={t('connect.soonNote')}>
+                {t('connect.soon')}
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="border-t border-zinc-100 px-4 py-3 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">{t('connect.soonNote')}</p>
       </Card>
     </>
   );
