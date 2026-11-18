@@ -13,8 +13,11 @@ import {
   GENDERS,
   IMAGE_TYPES,
   MAX_IMAGE_BYTES,
+  MAX_TARGETING_ITEMS,
   minDailyBudget,
   validateCreateAdInput,
+  type TargetingItem,
+  type TargetingOption,
   type CreateAdInput,
   type CreateObjective,
   type CtaType,
@@ -46,6 +49,33 @@ const COUNTRIES = ['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'JO', 'IQ', 'LB', '
 
 const DEMO_PAGES: PageOption[] = [{ id: '100000000000001', name: 'Lumen Store' }];
 const DEMO_PIXELS: PixelOption[] = [{ id: '200000000000001', name: 'Lumen Store Pixel' }];
+
+/** Demo mode: a small offline catalogue so the targeting picker can be tried without Meta. */
+const DEMO_TARGETING: TargetingOption[] = (
+  [
+    ['6003397425735', 'Headphones', 'interests', ['Interests', 'Technology', 'Consumer electronics'], 180e6],
+    ['6003252179711', 'Smartphones', 'interests', ['Interests', 'Technology', 'Consumer electronics'], 900e6],
+    ['6003012317397', 'Consumer electronics', 'interests', ['Interests', 'Technology'], 1.1e9],
+    ['6003107902433', 'Online shopping', 'interests', ['Interests', 'Shopping and fashion', 'Shopping'], 1.3e9],
+    ['6003384248805', 'Fitness and wellness', 'interests', ['Interests', 'Fitness and wellness'], 700e6],
+    ['6003940339466', 'Running', 'interests', ['Interests', 'Sports and outdoors', 'Sports'], 300e6],
+    ['6003349442621', 'Gaming', 'interests', ['Interests', 'Entertainment', 'Games'], 1.2e9],
+    ['6003020834693', 'Music', 'interests', ['Interests', 'Entertainment'], 1.9e9],
+    ['6071631541183', 'Engaged Shoppers', 'behaviors', ['Behaviors', 'Purchase behavior'], 900e6],
+    ['6003808923172', 'Technology early adopters', 'behaviors', ['Behaviors', 'Digital activities'], 120e6],
+    ['6002714898572', 'Small business owners', 'behaviors', ['Behaviors', 'Digital activities'], 100e6],
+    ['6017476616183', 'Recently moved', 'life_events', ['Demographics', 'Life events'], 40e6],
+    ['6002714398172', 'Newly engaged (6 months)', 'life_events', ['Demographics', 'Life events'], 20e6],
+  ] as const
+).map(([id, name, type, path, size]) => ({ id, name, type, path: [...path], sizeLower: size * 0.85, sizeUpper: size }));
+
+const compactNum = new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 1 });
+function audienceSize(o: TargetingOption): string {
+  if (o.sizeLower == null || o.sizeUpper == null) return '';
+  return `${compactNum.format(o.sizeLower)}–${compactNum.format(o.sizeUpper)}`;
+}
+const typeLabelKey = (type: TargetingOption['type']): DictKey =>
+  type === 'interests' || type === 'behaviors' || type === 'life_events' ? `createAd.targetType.${type}` : 'createAd.targetType.demographics';
 
 const input =
   'h-10 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100';
@@ -107,6 +137,7 @@ export default function CreateAd() {
     campaignName: '',
     dailyBudget: 0,
     countries: ['EG'],
+    detailedTargeting: [],
     ageMin: 18,
     ageMax: 65,
     gender: 'all',
@@ -172,6 +203,70 @@ export default function CreateAd() {
       alive = false;
     };
   }, [live, workspace, form.adAccountId, t]);
+
+  // Detailed targeting: search as you type, and related suggestions for what is picked.
+  const [targetQuery, setTargetQuery] = useState('');
+  const [targetResults, setTargetResults] = useState<TargetingOption[] | null>(null);
+  const [targetSuggestions, setTargetSuggestions] = useState<TargetingOption[]>([]);
+  const picked = form.detailedTargeting ?? [];
+  const isPicked = (o: TargetingItem) => picked.some((p) => p.id === o.id && p.type === o.type);
+  const addTarget = (o: TargetingItem) => {
+    if (isPicked(o) || picked.length >= MAX_TARGETING_ITEMS) return;
+    set('detailedTargeting', [...picked, { id: o.id, name: o.name, type: o.type }]);
+  };
+  const removeTarget = (o: TargetingItem) =>
+    set('detailedTargeting', picked.filter((p) => !(p.id === o.id && p.type === o.type)));
+
+  useEffect(() => {
+    const q = targetQuery.trim();
+    if (q.length < 2) {
+      setTargetResults(null);
+      return;
+    }
+    if (!live) {
+      const ql = q.toLowerCase();
+      setTargetResults(DEMO_TARGETING.filter((o) => o.name.toLowerCase().includes(ql) || o.path.join(' ').toLowerCase().includes(ql)));
+      return;
+    }
+    if (!workspace || !form.adAccountId) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      void supabase!.functions
+        .invoke('meta-create-ad', { body: { action: 'targeting_search', workspace_id: workspace.id, ad_account_id: form.adAccountId, q, locale: lang } })
+        .then(({ data, error }) => {
+          if (alive) setTargetResults(error ? [] : (data as { options: TargetingOption[] }).options);
+        });
+    }, 350);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [targetQuery, live, workspace, form.adAccountId, lang]);
+
+  const pickedKey = picked.map((p) => `${p.type}:${p.id}`).join(',');
+  useEffect(() => {
+    if (!picked.length) {
+      setTargetSuggestions([]);
+      return;
+    }
+    if (!live) {
+      setTargetSuggestions(DEMO_TARGETING.filter((o) => !isPicked(o)).slice(0, 8));
+      return;
+    }
+    if (!workspace || !form.adAccountId) return;
+    let alive = true;
+    void supabase!.functions
+      .invoke('meta-create-ad', {
+        body: { action: 'targeting_suggestions', workspace_id: workspace.id, ad_account_id: form.adAccountId, items: picked, locale: lang },
+      })
+      .then(({ data, error }) => {
+        if (alive) setTargetSuggestions(error ? [] : (data as { options: TargetingOption[] }).options.slice(0, 12));
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickedKey, live, workspace, form.adAccountId, lang]);
 
   // Default the account and page once loaded.
   useEffect(() => {
@@ -459,6 +554,94 @@ export default function CreateAd() {
                   })}
                 </div>
                 {fieldErr(['countries_required', 'country_invalid'])}
+              </div>
+              <div className="sm:col-span-2">
+                <span className="mb-1 block text-sm font-medium text-zinc-800 dark:text-zinc-200">{t('createAd.targeting')}</span>
+                <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">{t('createAd.targetingHint')}</p>
+                {picked.length > 0 && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {picked.map((p) => (
+                      <span
+                        key={`${p.type}:${p.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-brand-600 py-1 pe-1.5 ps-3 text-xs font-medium text-white"
+                      >
+                        <span dir="auto">{p.name}</span>
+                        <span className="opacity-75">· {t(typeLabelKey(p.type))}</span>
+                        <button
+                          type="button"
+                          onClick={() => removeTarget(p)}
+                          aria-label={t('createAd.targetRemove', { name: p.name })}
+                          className="grid h-5 w-5 place-items-center rounded-full hover:bg-white/20"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <input
+                  type="search"
+                  className={input}
+                  value={targetQuery}
+                  onChange={(e) => setTargetQuery(e.target.value)}
+                  placeholder={t('createAd.targetingPlaceholder')}
+                  disabled={picked.length >= MAX_TARGETING_ITEMS}
+                />
+                {targetResults !== null && (
+                  <div className="mt-1 max-h-72 overflow-y-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+                    {targetResults.length === 0 ? (
+                      <div className="px-3 py-2.5 text-sm text-zinc-500">{t('createAd.targetingNone')}</div>
+                    ) : (
+                      targetResults.map((o) => {
+                        const on = isPicked(o);
+                        return (
+                          <button
+                            key={`${o.type}:${o.id}`}
+                            type="button"
+                            disabled={on}
+                            onClick={() => addTarget(o)}
+                            className="flex w-full items-start gap-3 border-b border-zinc-100 px-3 py-2 text-start last:border-0 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium" dir="auto">
+                                {on ? '✓ ' : ''}
+                                {o.name}
+                              </span>
+                              <span className="block truncate text-[11px] text-zinc-500 dark:text-zinc-400" dir="auto">
+                                {t(typeLabelKey(o.type))}
+                                {o.path.slice(1, -1).length ? ` · ${o.path.slice(1, -1).join(' › ')}` : ''}
+                              </span>
+                            </span>
+                            {audienceSize(o) && (
+                              <span className="shrink-0 text-[11px] tabular-nums text-zinc-500 dark:text-zinc-400" dir="ltr">
+                                {audienceSize(o)}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+                {targetSuggestions.length > 0 && (
+                  <div className="mt-3">
+                    <div className="mb-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-300">{t('createAd.targetingSuggested')}</div>
+                    <div className="flex flex-wrap gap-2">
+                      {targetSuggestions.map((o) => (
+                        <button
+                          key={`${o.type}:${o.id}`}
+                          type="button"
+                          onClick={() => addTarget(o)}
+                          className="rounded-full border border-dashed border-zinc-300 px-3 py-1 text-xs font-medium text-zinc-700 hover:border-brand-600 hover:text-brand-700 dark:border-zinc-600 dark:text-zinc-200"
+                        >
+                          + <span dir="auto">{o.name}</span>
+                          {audienceSize(o) && <span className="mx-1.5 text-zinc-400" dir="ltr">{audienceSize(o)}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {fieldErr(['targeting_invalid'])}
               </div>
             </div>
           </Card>

@@ -6,6 +6,8 @@ import {
   buildAdSetPayload,
   buildCampaignPayload,
   buildCreativePayload,
+  buildTargeting,
+  normalizeTargetingRows,
   toFormFields,
   validateCreateAdInput,
   type CreateAdInput,
@@ -126,5 +128,54 @@ describe('misc', () => {
 
   it('requests the scopes needed to create ads', () => {
     expect(META_SCOPES).toEqual(expect.arrayContaining(['ads_read', 'ads_management', 'pages_show_list']));
+  });
+});
+
+describe('detailed targeting', () => {
+  const items: CreateAdInput['detailedTargeting'] = [
+    { id: '6003397425735', name: 'Headphones', type: 'interests' },
+    { id: '6003107902433', name: 'Online shopping', type: 'interests' },
+    { id: '6071631541183', name: 'Engaged Shoppers', type: 'behaviors' },
+    { id: '3', name: 'Married', type: 'relationship_statuses' },
+  ];
+
+  it('puts every item in one flexible_spec group (people matching ANY of them)', () => {
+    const t = buildTargeting({ ...base, detailedTargeting: items });
+    expect(t.flexible_spec).toEqual([
+      {
+        interests: [
+          { id: '6003397425735', name: 'Headphones' },
+          { id: '6003107902433', name: 'Online shopping' },
+        ],
+        behaviors: [{ id: '6071631541183', name: 'Engaged Shoppers' }],
+        relationship_statuses: [3],
+      },
+    ]);
+  });
+
+  it('sends no flexible_spec for broad targeting', () => {
+    expect(buildTargeting({ ...base, detailedTargeting: [] }).flexible_spec).toBeUndefined();
+    expect(buildTargeting(base).flexible_spec).toBeUndefined();
+  });
+
+  it('rejects unknown types, non-numeric ids and more than 50 items', () => {
+    expect(validateCreateAdInput({ ...base, detailedTargeting: items }, 'EGP')).not.toContain('targeting_invalid');
+    const bad = (d: unknown) => validateCreateAdInput({ ...base, detailedTargeting: d as CreateAdInput['detailedTargeting'] }, 'EGP');
+    expect(bad([{ id: '1', name: 'x', type: 'custom_audiences' }])).toContain('targeting_invalid');
+    expect(bad([{ id: 'abc', name: 'x', type: 'interests' }])).toContain('targeting_invalid');
+    expect(bad(Array.from({ length: 51 }, (_, i) => ({ id: String(i + 1), name: 'x', type: 'interests' })))).toContain('targeting_invalid');
+  });
+
+  it('normalises search rows, keeping only sendable categories and dropping duplicates', () => {
+    const out = normalizeTargetingRows([
+      { id: '6003397425735', name: 'Headphones', type: 'interests', path: ['Interests', 'Technology'], audience_size_lower_bound: 1000, audience_size_upper_bound: 2000 },
+      { id: '6003397425735', name: 'Headphones', type: 'interests' },
+      { id: 99, name: 'Some audience', type: 'custom_audience' },
+      { id: 3, name: 'Married', type: 'relationship_statuses' },
+    ]);
+    expect(out).toEqual([
+      { id: '6003397425735', name: 'Headphones', type: 'interests', path: ['Interests', 'Technology'], sizeLower: 1000, sizeUpper: 2000 },
+      { id: '3', name: 'Married', type: 'relationship_statuses', path: [], sizeLower: null, sizeUpper: null },
+    ]);
   });
 });

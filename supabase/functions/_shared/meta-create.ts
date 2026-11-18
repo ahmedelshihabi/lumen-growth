@@ -17,6 +17,74 @@ export type CtaType = (typeof CTA_TYPES)[number];
 export const GENDERS = ['all', 'male', 'female'] as const;
 export type Gender = (typeof GENDERS)[number];
 
+/**
+ * Detailed-targeting categories Lumen can send in `flexible_spec`. These are the `type`
+ * values returned by GET /{act}/targetingsearch and /targetingsuggestions.
+ */
+export const TARGETING_TYPES = [
+  'interests',
+  'behaviors',
+  'life_events',
+  'industries',
+  'income',
+  'family_statuses',
+  'work_positions',
+  'work_employers',
+  'education_schools',
+  'education_majors',
+  'education_statuses',
+  'relationship_statuses',
+] as const;
+export type TargetingType = (typeof TARGETING_TYPES)[number];
+/** Types Meta expects as bare integers instead of {id, name}. */
+const INTEGER_TARGETING_TYPES: readonly TargetingType[] = ['education_statuses', 'relationship_statuses'];
+export const MAX_TARGETING_ITEMS = 50;
+
+export interface TargetingItem {
+  id: string;
+  name: string;
+  type: TargetingType;
+}
+
+/** A search/suggestion result shown in the picker. */
+export interface TargetingOption extends TargetingItem {
+  /** Category path, e.g. ['Interests', 'Technology', 'Consumer electronics']. */
+  path: string[];
+  sizeLower: number | null;
+  sizeUpper: number | null;
+}
+
+interface RawTargetingRow {
+  id?: string | number;
+  name?: string;
+  type?: string;
+  path?: string[];
+  audience_size_lower_bound?: number;
+  audience_size_upper_bound?: number;
+}
+
+/** Keep only categories Lumen can send back, and normalise the shape. */
+// VERIFY: field names on /targetingsearch and /targetingsuggestions results.
+export function normalizeTargetingRows(rows: readonly RawTargetingRow[]): TargetingOption[] {
+  const seen = new Set<string>();
+  const out: TargetingOption[] = [];
+  for (const r of rows) {
+    if (r.id === undefined || !r.name || !(TARGETING_TYPES as readonly string[]).includes(r.type ?? '')) continue;
+    const key = `${r.type}:${r.id}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      id: String(r.id),
+      name: r.name,
+      type: r.type as TargetingType,
+      path: Array.isArray(r.path) ? r.path : [],
+      sizeLower: typeof r.audience_size_lower_bound === 'number' ? r.audience_size_lower_bound : null,
+      sizeUpper: typeof r.audience_size_upper_bound === 'number' ? r.audience_size_upper_bound : null,
+    });
+  }
+  return out;
+}
+
 export interface CreateAdInput {
   /** 'act_123...' */
   adAccountId: string;
@@ -37,6 +105,8 @@ export interface CreateAdInput {
   headline: string;
   description?: string;
   cta: CtaType;
+  /** Interests, behaviours and demographics. People matching ANY of them are targeted. */
+  detailedTargeting?: TargetingItem[];
 }
 
 export type CreateAdErrorCode =
@@ -55,7 +125,8 @@ export type CreateAdErrorCode =
   | 'primary_text_required'
   | 'headline_required'
   | 'text_too_long'
-  | 'cta_invalid';
+  | 'cta_invalid'
+  | 'targeting_invalid';
 
 /**
  * Smallest daily budget we accept, in major units of the account currency.
@@ -113,6 +184,22 @@ export function validateCreateAdInput(i: CreateAdInput, currency: string): Creat
   )
     e.push('text_too_long');
   if (!(CTA_TYPES as readonly string[]).includes(i.cta)) e.push('cta_invalid');
+  if (i.detailedTargeting !== undefined) {
+    const list = i.detailedTargeting;
+    if (
+      !Array.isArray(list) ||
+      list.length > MAX_TARGETING_ITEMS ||
+      list.some(
+        (t) =>
+          !t ||
+          typeof t.id !== 'string' ||
+          !/^\d+$/.test(t.id) ||
+          typeof t.name !== 'string' ||
+          !(TARGETING_TYPES as readonly string[]).includes(t.type),
+      )
+    )
+      e.push('targeting_invalid');
+  }
   return e;
 }
 
@@ -143,6 +230,16 @@ export function buildTargeting(i: CreateAdInput): Record<string, unknown> {
   };
   if (i.gender === 'male') t.genders = [1];
   if (i.gender === 'female') t.genders = [2];
+  const items = i.detailedTargeting ?? [];
+  if (items.length) {
+    // One flexible_spec group = OR across every category in it ("people who match any").
+    const group: Record<string, unknown[]> = {};
+    for (const it of items) {
+      const v = INTEGER_TARGETING_TYPES.includes(it.type) ? Number(it.id) : { id: it.id, name: it.name };
+      (group[it.type] ??= []).push(v);
+    }
+    t.flexible_spec = [group];
+  }
   return t;
 }
 

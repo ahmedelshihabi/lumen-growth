@@ -4,6 +4,8 @@
 // Actions:
 //   { action: 'pages', ad_account_id }                   -> { pages: [{id, name, picture}] }
 //   { action: 'pixels', ad_account_id }                  -> { pixels: [{id, name}] }
+//   { action: 'targeting_search', ad_account_id, q }     -> { options: TargetingOption[] }
+//   { action: 'targeting_suggestions', ad_account_id, items: [{id, type}] } -> { options }
 //   { action: 'create', input: CreateAdInput, image? }   -> { campaign_id, adset_id, creative_id, ad_id, ads_manager_url }
 //      image = { base64, filename, content_type } (jpg/png, <= 8MB)
 //
@@ -11,7 +13,7 @@
 // and only on ad accounts that belong to the workspace. While the Meta app is in
 // Development mode this works for people with a role on the app (admins/developers/testers).
 import { HttpError, adminClient, json, loadSubscription, readJson, requireUser, resolveWorkspace, serve } from '../_shared/http.ts';
-import { graphDelete, graphGetAll, graphPost } from '../_shared/graph.ts';
+import { graphDelete, graphGet, graphGetAll, graphPost } from '../_shared/graph.ts';
 import { META_CREATE_SCOPES } from '../_shared/meta.ts';
 import { isSubscriptionActive } from '../_shared/period.ts';
 import {
@@ -23,13 +25,17 @@ import {
   buildAdSetPayload,
   buildCampaignPayload,
   buildCreativePayload,
+  normalizeTargetingRows,
   toFormFields,
   validateCreateAdInput,
   type CreateAdInput,
 } from '../_shared/meta-create.ts';
 
 interface Body {
-  action?: 'pages' | 'pixels' | 'create';
+  action?: 'pages' | 'pixels' | 'create' | 'targeting_search' | 'targeting_suggestions';
+  q?: string;
+  locale?: string;
+  items?: { id: string; type: string }[];
   workspace_id?: string;
   ad_account_id?: string;
   input?: CreateAdInput;
@@ -104,6 +110,35 @@ serve(async (req) => {
     const acc = await loadAccount(body.ad_account_id);
     const pixels = await graphGetAll<{ id: string; name: string }>(`${acc.meta_account_id}/adspixels`, { fields: 'id,name', limit: '100' }, token, 5);
     return json({ pixels });
+  }
+
+  if (body.action === 'targeting_search') {
+    // Interests, behaviours and demographics matching the typed text.
+    const acc = await loadAccount(body.ad_account_id);
+    const q = (body.q ?? '').trim().slice(0, 100);
+    if (q.length < 2) return json({ options: [] });
+    // VERIFY: GET /{act_id}/targetingsearch?q= returns interests, behaviours and demographics.
+    const res = await graphGet<{ data?: unknown[] }>(`${acc.meta_account_id}/targetingsearch`, { q, limit: '40', locale: body.locale === 'ar' ? 'ar_AR' : 'en_US' }, token);
+    return json({ options: normalizeTargetingRows((res.data ?? []) as never[]) });
+  }
+
+  if (body.action === 'targeting_suggestions') {
+    // Related interests/behaviours for what the user already picked ("people also target").
+    const acc = await loadAccount(body.ad_account_id);
+    const picked = (body.items ?? []).filter((t) => t && /^\d+$/.test(String(t.id))).slice(0, 20);
+    if (!picked.length) return json({ options: [] });
+    // VERIFY: GET /{act_id}/targetingsuggestions?targeting_list=[{type,id}].
+    const res = await graphGet<{ data?: unknown[] }>(
+      `${acc.meta_account_id}/targetingsuggestions`,
+      {
+        targeting_list: JSON.stringify(picked.map((t) => ({ type: t.type, id: String(t.id) }))),
+        limit: '30',
+        locale: body.locale === 'ar' ? 'ar_AR' : 'en_US',
+      },
+      token,
+    );
+    const pickedKeys = new Set(picked.map((t) => `${t.type}:${t.id}`));
+    return json({ options: normalizeTargetingRows((res.data ?? []) as never[]).filter((o) => !pickedKeys.has(`${o.type}:${o.id}`)) });
   }
 
   if (body.action !== 'create') throw new HttpError(400, 'unknown_action');
