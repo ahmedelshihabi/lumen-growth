@@ -27,7 +27,8 @@ function demoState(): Omit<SessionState, 'refresh' | 'signOut' | 'entitlements'>
     mode: 'demo',
     loading: false,
     user: { id: 'demo-user', email: 'demo@example.com' },
-    profile: { full_name: 'Demo', is_platform_admin: true },
+    // Demo visitors are customers, not platform admins: no "Admin" link, /admin shows "forbidden".
+    profile: { full_name: 'Demo', is_platform_admin: false },
     workspace: { id: '00000000-0000-4000-8000-000000000000', name: 'Demo workspace' },
     role: 'owner',
     subscription: { plan_id: 'growth', status: 'trialing', trial_ends_at: end, current_period_end: end },
