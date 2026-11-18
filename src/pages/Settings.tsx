@@ -85,12 +85,12 @@ function BudgetsCard() {
               <li key={c.id} className="grid gap-2 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_200px] sm:items-center">
                 <div className="min-w-0">
                   <div className="truncate text-sm font-medium" title={c.name}>
-                    {c.name}
+                    <bdi>{c.name}</bdi>
                   </div>
                   <ChannelBadge channel={c.channel} />
                 </div>
                 <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
-                  <span className="sr-only">{c.name}</span>
+                  <span className="sr-only"><bdi>{c.name}</bdi></span>
                   {/* Same direction as the LTR number input, so the currency suffix and the padding are on the same side. */}
                   <div className="relative" dir="ltr">
                     <input
@@ -170,7 +170,7 @@ export default function Settings() {
               return (
                 <li key={a.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_160px_160px] sm:items-end">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium">{a.name}</div>
+                    <div className="truncate text-sm font-medium"><bdi>{a.name}</bdi></div>
                     <div className="mt-0.5 flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
                       <ChannelBadge channel={a.channel} />
                       <span className="truncate" dir="ltr">

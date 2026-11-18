@@ -159,7 +159,7 @@ function PacingRow({ campaign, p, advice, color }: { campaign: Campaign; p: Paci
     <li className="grid gap-3 px-4 py-3 md:grid-cols-[minmax(0,1.2fr)_minmax(0,2fr)_210px] md:items-center">
       <div className="min-w-0">
         <div className="truncate text-sm font-medium" title={campaign.name}>
-          {campaign.name}
+          <bdi>{campaign.name}</bdi>
         </div>
         <div className="mt-0.5">
           <ChannelBadge channel={campaign.channel} />

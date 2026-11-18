@@ -18,7 +18,7 @@ export function ChartTooltip({ active, payload, label, formatValue, formatLabel 
           <div key={String(p.dataKey ?? p.name)} className="flex items-center justify-between gap-4">
             <span className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
               <span className="h-2 w-2 rounded-sm" style={{ background: p.color ?? (p.payload as { fill?: string })?.fill }} />
-              {p.name}
+              <bdi>{p.name}</bdi>
             </span>
             <span className="font-medium tabular-nums text-zinc-900 dark:text-zinc-100">
               {formatValue ? formatValue(Number(p.value), String(p.name)) : p.value}

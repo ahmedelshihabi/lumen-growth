@@ -454,7 +454,7 @@ export default function CreateAd() {
               <Field label={t('createAd.account')}>
                 <select className={input} value={form.adAccountId} onChange={(e) => set('adAccountId', e.target.value)}>
                   {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
+                    <option key={a.id} value={a.id} dir="auto">
                       {a.name} ({a.currency})
                     </option>
                   ))}
@@ -469,7 +469,7 @@ export default function CreateAd() {
                 ) : (
                   <select className={input} value={form.pageId} onChange={(e) => set('pageId', e.target.value)}>
                     {pages.map((p) => (
-                      <option key={p.id} value={p.id}>
+                      <option key={p.id} value={p.id} dir="auto">
                         {p.name}
                       </option>
                     ))}
@@ -480,7 +480,7 @@ export default function CreateAd() {
               <Field label={t('createAd.objective')}>
                 <select className={input} value={form.objective} onChange={(e) => set('objective', e.target.value as CreateObjective)}>
                   {CREATE_OBJECTIVES.map((o) => (
-                    <option key={o} value={o}>
+                    <option key={o} value={o} dir="auto">
                       {t(`createAd.objective.${o}`)}
                     </option>
                   ))}
@@ -495,7 +495,7 @@ export default function CreateAd() {
                   ) : (
                     <select className={input} value={form.pixelId} onChange={(e) => set('pixelId', e.target.value)}>
                       {pixels.map((p) => (
-                        <option key={p.id} value={p.id}>
+                        <option key={p.id} value={p.id} dir="auto">
                           {p.name}
                         </option>
                       ))}
@@ -532,7 +532,7 @@ export default function CreateAd() {
               <Field label={t('createAd.gender')}>
                 <select className={input} value={form.gender} onChange={(e) => set('gender', e.target.value as Gender)}>
                   {GENDERS.map((g) => (
-                    <option key={g} value={g}>
+                    <option key={g} value={g} dir="auto">
                       {t(`createAd.gender.${g}`)}
                     </option>
                   ))}
@@ -691,19 +691,29 @@ export default function CreateAd() {
               <Field label={t('createAd.cta')}>
                 <select className={input} value={form.cta} onChange={(e) => set('cta', e.target.value as CtaType)}>
                   {CTA_TYPES.map((c) => (
-                    <option key={c} value={c}>
+                    <option key={c} value={c} dir="auto">
                       {t(`createAd.cta.${c}`)}
                     </option>
                   ))}
                 </select>
               </Field>
               <Field label={<>{t('createAd.image')} <span className="font-normal text-zinc-500">{t('createAd.optional')}</span></>} hint={t('createAd.imageHint')}>
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png"
-                  onChange={(e) => pickImage(e.target.files?.[0])}
-                  className="block w-full text-sm text-zinc-600 file:me-3 file:rounded-lg file:border-0 file:bg-zinc-100 file:px-3 file:py-2 file:text-sm file:font-medium dark:text-zinc-300 dark:file:bg-zinc-800 dark:file:text-zinc-100"
-                />
+                {/* Native file inputs always show the browser's own language ("Choose File"); use a localized label instead. */}
+                <div className="flex items-center gap-3">
+                  {imageUrl && <img src={imageUrl} alt="" className="h-12 w-12 shrink-0 rounded-lg object-cover ring-1 ring-zinc-200 dark:ring-zinc-700" />}
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-100 focus-within:ring-2 focus-within:ring-brand-500/30 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700">
+                    <input type="file" accept="image/jpeg,image/png" className="sr-only" onChange={(e) => pickImage(e.target.files?.[0])} />
+                    {image ? t('createAd.imageChange') : t('createAd.imageChoose')}
+                  </label>
+                  <span className="min-w-0 truncate text-xs text-zinc-500 dark:text-zinc-400" dir="auto">
+                    {image ? image.name : t('createAd.imageNone')}
+                  </span>
+                  {image && (
+                    <button type="button" onClick={() => pickImage(undefined)} className="text-xs font-medium text-red-600 hover:underline dark:text-red-400">
+                      {t('createAd.imageRemove')}
+                    </button>
+                  )}
+                </div>
                 {imageError && <span className="mt-1 block text-xs text-red-600 dark:text-red-400">{imageError}</span>}
               </Field>
               {fieldErr(['text_too_long', 'cta_invalid', 'objective_invalid', 'gender_invalid'])}

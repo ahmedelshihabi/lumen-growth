@@ -135,7 +135,7 @@ export function Layout({ route, children, badges }: { route: AppRoute; children:
         <div className="flex-1 overflow-y-auto">{nav}</div>
         <div className="border-t border-zinc-200 px-6 py-4 text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
           <div className="truncate font-medium text-zinc-700 dark:text-zinc-200" title={workspaceName}>
-            {workspaceName}
+            <bdi>{workspaceName}</bdi>
           </div>
           {data && data.campaigns.length > 0 && <div className="mt-1">{t('common.dataThrough', { date: data.asOf })}</div>}
           <div className="mt-3 flex items-center gap-2">
@@ -181,7 +181,7 @@ export function Layout({ route, children, badges }: { route: AppRoute; children:
             </div>
             <div className="flex-1 overflow-y-auto">{nav}</div>
             <div className="flex items-center justify-between border-t border-zinc-200 px-6 py-3 text-xs text-zinc-500 dark:border-zinc-800">
-              <span className="truncate">{workspaceName}</span>
+              <span className="truncate"><bdi>{workspaceName}</bdi></span>
               {signOut}
             </div>
           </div>

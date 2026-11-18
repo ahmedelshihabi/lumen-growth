@@ -233,7 +233,7 @@ export default function Connect() {
                   <label className={cx('flex items-center gap-3 px-4 py-3', blocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40')}>
                     <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={checked} disabled={blocked || busy} onChange={() => toggle(a.id)} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{a.name}</span>
+                      <span className="block truncate text-sm font-medium"><bdi>{a.name}</bdi></span>
                       <span className="block text-xs text-zinc-500 dark:text-zinc-400" dir="ltr">
                         {a.meta_account_id} · {a.currency}
                       </span>

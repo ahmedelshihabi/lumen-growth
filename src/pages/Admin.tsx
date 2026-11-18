@@ -153,7 +153,7 @@ export default function Admin() {
                     <li key={r.id} className="px-4 py-3">
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium">{r.name}</div>
+                          <div className="truncate text-sm font-medium"><bdi>{r.name}</bdi></div>
                           <div className="truncate text-xs text-zinc-500 dark:text-zinc-400" dir="ltr">
                             {r.ownerEmail ?? r.owner_id} · {r.id}
                           </div>

@@ -172,12 +172,12 @@ export default function Creatives() {
               </div>
               <div className="flex flex-1 flex-col p-4">
                 <div className="truncate text-sm font-semibold" title={c.name}>
-                  {c.name}
+                  <bdi>{c.name}</bdi>
                 </div>
                 <div className="mt-0.5 flex min-w-0 items-center gap-2">
                   <ChannelBadge channel={c.channel} />
                   <span className="truncate text-[11px] text-zinc-400" title={campaign.name}>
-                    {campaign.name}
+                    <bdi>{campaign.name}</bdi>
                   </span>
                 </div>
 

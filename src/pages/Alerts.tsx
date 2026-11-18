@@ -71,7 +71,7 @@ export default function Alerts() {
                   <p className="mt-0.5 text-sm text-zinc-600 dark:text-zinc-300" dir="auto">{t(a.detailMsg.key, a.detailMsg.vars)}</p>
                   <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
                     <ChannelBadge channel={a.channel} />
-                    <span className="truncate">{a.campaignName}</span>
+                    <span className="truncate"><bdi>{a.campaignName}</bdi></span>
                   </div>
                 </div>
                 <time className="shrink-0 text-xs tabular-nums text-zinc-500 dark:text-zinc-400" dateTime={a.date}>

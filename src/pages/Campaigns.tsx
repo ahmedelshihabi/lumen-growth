@@ -144,7 +144,54 @@ export default function Campaigns() {
           <span className="ms-auto text-xs text-zinc-500 dark:text-zinc-400">{t('common.shown', { n: rows.length })}</span>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Phones: one card per campaign with every metric visible (no sideways scrolling). */}
+        <ul className="divide-y divide-zinc-100 md:hidden dark:divide-zinc-800">
+          {rows.map((s) => {
+            const m = s.totals;
+            const active = m.spend > 0;
+            const noValue = lacksValueTracking(m);
+            const cell = (label: string, value: string, cls?: string) => (
+              <div>
+                <div className="text-[11px] text-zinc-500 dark:text-zinc-400">{label}</div>
+                <div className={cx('text-sm font-medium tabular-nums', cls)}>{value}</div>
+              </div>
+            );
+            return (
+              <li key={s.campaign.id} className="px-4 py-3">
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium" title={s.campaign.name}>
+                      <bdi>{s.campaign.name}</bdi>
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2">
+                      <ChannelBadge channel={s.campaign.channel} />
+                      <StatusBadge status={s.campaign.status} />
+                    </div>
+                  </div>
+                  <HealthPill health={s.health} />
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-x-3 gap-y-2">
+                  {cell(t('common.spend'), fmtMoney(m.spend))}
+                  {cell(t('common.revenue'), fmtMoney(m.revenue))}
+                  {cell(
+                    t('metric.roas'),
+                    active && !noValue ? fmtRoas(m.roas) : active ? 'n/a' : '-',
+                    active && s.kind === 'sales' ? healthText(metricHealth(m.roas, s.target.targetRoas, true)) : undefined,
+                  )}
+                  {cell(
+                    t('metric.cpa'),
+                    active && m.conversions > 0 ? fmtMoney2(m.cpa) : '-',
+                    active && m.conversions > 0 && (s.kind === 'sales' || s.kind === 'leads') ? healthText(metricHealth(m.cpa, s.target.targetCpa, false)) : undefined,
+                  )}
+                  {cell(t('metric.ctr'), active ? fmtPct(m.ctr) : '-')}
+                  {cell(t('campaigns.col.freq'), active ? s.frequency.toFixed(1) : '-', s.frequencyOverCap ? 'text-red-600 dark:text-red-400' : undefined)}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[960px] text-sm">
             <thead>
               <tr className="text-[11px] uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
@@ -178,7 +225,7 @@ export default function Campaigns() {
                   <tr key={s.campaign.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
                     <td className="max-w-[280px] py-2.5 ps-4 pe-3">
                       <div className="truncate font-medium text-zinc-900 dark:text-zinc-100" title={s.campaign.name}>
-                        {s.campaign.name}
+                        <bdi>{s.campaign.name}</bdi>
                       </div>
                       <div className="mt-0.5 flex items-center gap-2">
                         <ChannelBadge channel={s.campaign.channel} />
@@ -197,16 +244,16 @@ export default function Campaigns() {
                     <td className="px-3 py-2.5 text-end tabular-nums">{fmtMoney(t.spend)}</td>
                     <td className="px-3 py-2.5 text-end tabular-nums">{fmtMoney(t.revenue)}</td>
                     <td
-                      className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && !noValue && healthText(metricHealth(t.roas, s.target.targetRoas, true)))}
+                      className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && s.kind === 'sales' && healthText(metricHealth(t.roas, s.target.targetRoas, true)))}
                       title={noValue ? tr('campaigns.noValue') : undefined}
                     >
                       {active && !noValue ? fmtRoas(t.roas) : active ? 'n/a' : '-'}
                     </td>
-                    <td className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && healthText(metricHealth(t.cpa, s.target.targetCpa, false)))}>
+                    <td className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && (s.kind === 'sales' || s.kind === 'leads') && healthText(metricHealth(t.cpa, s.target.targetCpa, false)))}>
                       {active && t.conversions > 0 ? fmtMoney2(t.cpa) : '-'}
                     </td>
                     <td className="px-3 py-2.5 text-end tabular-nums">{active ? fmtPct(t.ctr) : '-'}</td>
-                    <td className={cx('px-3 py-2.5 text-end tabular-nums', s.frequency > 4 && 'font-medium text-red-600 dark:text-red-400')}>
+                    <td className={cx('px-3 py-2.5 text-end tabular-nums', s.frequencyOverCap && 'font-medium text-red-600 dark:text-red-400')}>
                       {active ? s.frequency.toFixed(1) : '-'}
                     </td>
                     <td className="px-3 py-2.5">
@@ -217,8 +264,8 @@ export default function Campaigns() {
               })}
             </tbody>
           </table>
-          {rows.length === 0 && <EmptyState>{t('common.noMatch')}</EmptyState>}
         </div>
+        {rows.length === 0 && <EmptyState>{t('common.noMatch')}</EmptyState>}
       </Card>
       <p className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
         {t('campaigns.footnote')}
