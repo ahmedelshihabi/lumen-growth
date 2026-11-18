@@ -8,7 +8,7 @@ const base = (props: P) => ({
   viewBox: '0 0 24 24',
   fill: 'none',
   stroke: 'currentColor',
-  strokeWidth: 1.8,
+  strokeWidth: 2,
   strokeLinecap: 'round' as const,
   strokeLinejoin: 'round' as const,
   'aria-hidden': true,
@@ -104,10 +104,19 @@ export const IconCheck = (p: P) => (
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );
+/** Brand mark: electric-blue tile, a lime growth wave, and a pink spark at its peak. */
 export const IconLogo = (p: P) => (
   <svg width="28" height="28" viewBox="0 0 32 32" aria-hidden {...p}>
-    <rect width="32" height="32" rx="8" fill="#3b66f5" />
-    <path d="M9 22 L14 15 L18 18 L23 10" stroke="#fff" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    <rect width="32" height="32" rx="10" fill="#3D3BF5" />
+    <path
+      d="M6.5 21.5c3.2 0 3.6-6 7.2-6s3.4 4.6 6.9 4.6c2.7 0 3.6-3.3 4.4-7.6"
+      stroke="#D4FF4D"
+      strokeWidth="3.6"
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+    <path d="M25 5.2l.9 2.3 2.3.9-2.3.9-.9 2.3-.9-2.3-2.3-.9 2.3-.9z" fill="#F56CCB" />
   </svg>
 );
 

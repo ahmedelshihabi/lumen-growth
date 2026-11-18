@@ -19,7 +19,8 @@ body {
 
 html.dark,
 html.dark body {
-  background: #09090b;
+  /* Deep indigo instead of neutral black, to sit with the electric-blue brand. */
+  background: #0b0b1e;
 }
 
 body {

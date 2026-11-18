@@ -22,7 +22,7 @@ export function PublicLayout({ children }: { children: ReactNode }) {
             <LanguageToggle className="px-2.5" />
             <Link
               href={user ? '/app' : '/login'}
-              className="inline-flex h-9 items-center rounded-lg bg-zinc-900 px-3 text-sm font-semibold text-white hover:bg-zinc-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-white"
+              className="inline-flex h-9 items-center rounded-full bg-brand-600 px-4 text-sm font-bold text-white hover:bg-brand-700 dark:bg-zap-400 dark:text-brand-950 dark:hover:bg-zap-300"
             >
               {user ? t('nav.openApp') : t('nav.login')}
             </Link>

@@ -62,13 +62,15 @@ export function Layout({ route, children, badges }: { route: AppRoute; children:
         href={appHref(r)}
         aria-current={active ? 'page' : undefined}
         className={cx(
-          'group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+          'group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors',
           active
-            ? 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900'
-            : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100',
+            ? 'bg-brand-600 text-white shadow-sm shadow-brand-600/30'
+            : 'text-zinc-600 hover:bg-brand-50 hover:text-brand-800 dark:text-zinc-400 dark:hover:bg-brand-500/10 dark:hover:text-brand-200',
         )}
       >
-        <Icon />
+        <span className={cx('flex', active && 'text-zap-400')}>
+          <Icon />
+        </span>
         <span className="flex-1">{t(label)}</span>
         {access !== 'ok' ? (
           <IconLock width={14} height={14} className="opacity-60" aria-label="locked" />
@@ -76,7 +78,7 @@ export function Layout({ route, children, badges }: { route: AppRoute; children:
           <span
             className={cx(
               'min-w-[1.25rem] rounded-full px-1.5 text-center text-[11px] font-semibold tabular-nums',
-              active ? 'bg-white/20 text-current' : 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+              active ? 'bg-zap-400 text-brand-950' : 'bg-flamingo-100 text-flamingo-700 dark:bg-flamingo-500/15 dark:text-flamingo-300',
             )}
           >
             {count}
@@ -106,7 +108,7 @@ export function Layout({ route, children, badges }: { route: AppRoute; children:
   const brand = (
     <Link href="/" className="flex items-center gap-2.5 px-6 py-5">
       <IconLogo />
-      <span className="text-[15px] font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">{t('app.name')}</span>
+      <span className="text-[16px] font-extrabold tracking-tight text-brand-700 dark:text-white">{t('app.name')}</span>
     </Link>
   );
 
