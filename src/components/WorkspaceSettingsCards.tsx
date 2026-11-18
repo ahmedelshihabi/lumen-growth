@@ -13,6 +13,7 @@ import {
   type WorkspaceSettings,
 } from '../data/settings';
 import type { DictKey } from '../i18n/dict';
+import { useSession } from '../state/SessionContext';
 
 const input =
   'w-full rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100';
@@ -53,6 +54,7 @@ function effective(a: AlertSettings, key: (typeof FIELDS)[number]['key']): numbe
 
 export default function WorkspaceSettingsCards() {
   const { data, settings, saveSettings } = useLoadedApp();
+  const { canEdit } = useSession();
   const { t } = useI18n();
   const [draft, setDraft] = useState<WorkspaceSettings>(settings);
   const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -150,7 +152,7 @@ export default function WorkspaceSettingsCards() {
           </label>
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
-          <button type="button" className={primary} disabled={state === 'saving'} onClick={() => save({ ...settings, currency: draft.currency, timezone: draft.timezone, attributionWindow: draft.attributionWindow })}>
+          <button type="button" className={primary} disabled={!canEdit || state === 'saving'} onClick={() => save({ ...settings, currency: draft.currency, timezone: draft.timezone, attributionWindow: draft.attributionWindow })}>
             {t('common.save')}
           </button>
           {status}
@@ -207,10 +209,10 @@ export default function WorkspaceSettingsCards() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 border-t border-zinc-100 px-4 py-3 dark:border-zinc-800">
-          <button type="button" className={primary} disabled={invalid || state === 'saving'} onClick={() => save({ ...settings, alerts: draft.alerts })}>
+          <button type="button" className={primary} disabled={!canEdit || invalid || state === 'saving'} onClick={() => save({ ...settings, alerts: draft.alerts })}>
             {t('alertRules.save')}
           </button>
-          <button type="button" className={secondary} onClick={() => save({ ...settings, alerts: DEFAULT_WORKSPACE_SETTINGS.alerts })}>
+          <button type="button" className={secondary} disabled={!canEdit} onClick={() => save({ ...settings, alerts: DEFAULT_WORKSPACE_SETTINGS.alerts })}>
             {t('settings.reset')}
           </button>
           {invalid && <span className="text-sm text-red-600">{t('alertRules.invalid')}</span>}

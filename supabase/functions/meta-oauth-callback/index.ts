@@ -5,7 +5,7 @@
 //
 // While the Meta app is in Development mode only people with a role on the app
 // (admins / developers / testers) can complete this flow.
-import { HttpError, adminClient, env, json, loadSubscription, readJson, requireUser, resolveWorkspace, serve } from '../_shared/http.ts';
+import { adminClient, env, HttpError, json, loadSubscription, readJson, requireEditor, requireUser, resolveWorkspace, serve } from '../_shared/http.ts';
 import { graphGet, graphGetAll } from '../_shared/graph.ts';
 import { META_SCOPES } from '../_shared/meta.ts';
 import { isSubscriptionActive } from '../_shared/period.ts';
@@ -32,7 +32,9 @@ serve(async (req) => {
   const body = await readJson<{ code?: string; redirect_uri?: string; workspace_id?: string }>(req);
   if (!body.code) throw new HttpError(400, 'missing_code');
 
-  const { workspaceId } = await resolveWorkspace(admin, user.id, body.workspace_id);
+  const { workspaceId, role } = await resolveWorkspace(admin, user.id, body.workspace_id);
+  // Connecting Meta stores a token for the whole workspace: owner/admin only.
+  requireEditor(role);
   const sub = await loadSubscription(admin, workspaceId);
   if (!sub || !isSubscriptionActive(sub.status, sub.current_period_end ? new Date(sub.current_period_end) : null, new Date())) {
     throw new HttpError(402, 'subscription_inactive');

@@ -9,7 +9,12 @@ export interface SessionState {
   user: { id: string; email: string | null } | null;
   profile: { full_name: string | null; is_platform_admin: boolean } | null;
   workspace: { id: string; name: string } | null;
-  role: 'owner' | 'member' | null;
+  role: 'owner' | 'admin' | 'viewer' | null;
+  /** Owner or admin: may edit goals/budgets/rules, create ads, apply recommendations, invite. */
+  canEdit: boolean;
+  /** Every workspace the user belongs to (for the switcher). */
+  workspaces: { id: string; name: string; role: 'owner' | 'admin' | 'viewer' }[];
+  switchWorkspace: (id: string) => void;
   subscription: SubscriptionInfo | null;
   plans: Plan[];
   entitlements: Entitlements;
@@ -18,10 +23,20 @@ export interface SessionState {
 }
 
 const Ctx = createContext<SessionState | null>(null);
+const WS_KEY = 'lumen.workspace';
+
+/** Remember which workspace to open (used by the switcher and after accepting an invite). */
+export function rememberWorkspace(id: string) {
+  try {
+    localStorage.setItem(WS_KEY, id);
+  } catch {
+    /* ignore */
+  }
+}
 
 const DAY = 86_400_000;
 
-function demoState(): Omit<SessionState, 'refresh' | 'signOut' | 'entitlements'> {
+function demoState(): Omit<SessionState, 'refresh' | 'signOut' | 'entitlements' | 'canEdit' | 'switchWorkspace'> {
   const end = new Date(Date.now() + 9 * DAY + 3_600_000).toISOString();
   return {
     mode: 'demo',
@@ -31,18 +46,20 @@ function demoState(): Omit<SessionState, 'refresh' | 'signOut' | 'entitlements'>
     profile: { full_name: 'Demo', is_platform_admin: false },
     workspace: { id: '00000000-0000-4000-8000-000000000000', name: 'Demo workspace' },
     role: 'owner',
+    workspaces: [{ id: '00000000-0000-4000-8000-000000000000', name: 'Demo workspace', role: 'owner' }],
     subscription: { plan_id: 'growth', status: 'trialing', trial_ends_at: end, current_period_end: end },
     plans: DEMO_PLANS,
   };
 }
 
-const EMPTY: Omit<SessionState, 'refresh' | 'signOut' | 'entitlements'> = {
+const EMPTY: Omit<SessionState, 'refresh' | 'signOut' | 'entitlements' | 'canEdit' | 'switchWorkspace'> = {
   mode: 'live',
   loading: true,
   user: null,
   profile: null,
   workspace: null,
   role: null,
+  workspaces: [],
   subscription: null,
   plans: DEMO_PLANS,
 };
@@ -69,9 +86,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const [plans, profileRes, memberRes] = await Promise.all([
       loadPlans(),
       supabase.from('profiles').select('full_name, is_platform_admin').eq('id', user.id).maybeSingle(),
-      supabase.from('workspace_members').select('role, workspaces(id, name)').eq('user_id', user.id).order('created_at').limit(1).maybeSingle(),
+      supabase.from('workspace_members').select('role, created_at, workspaces(id, name)').eq('user_id', user.id).order('created_at'),
     ]);
-    const ws = (memberRes.data?.workspaces ?? null) as unknown as { id: string; name: string } | null;
+    type Row = { role: string; workspaces: { id: string; name: string } | null };
+    const all = ((memberRes.data ?? []) as unknown as Row[])
+      .filter((m) => m.workspaces)
+      .map((m) => ({ id: m.workspaces!.id, name: m.workspaces!.name, role: (m.role === 'member' ? 'admin' : m.role) as 'owner' | 'admin' | 'viewer' }));
+    // The last workspace the user picked (e.g. the one they were just invited to), else their first.
+    let preferred: string | null = null;
+    try {
+      preferred = localStorage.getItem(WS_KEY);
+    } catch {
+      /* ignore */
+    }
+    const current = all.find((w) => w.id === preferred) ?? all[0] ?? null;
+    const ws = current ? { id: current.id, name: current.name } : null;
     let subscription: SubscriptionInfo | null = null;
     if (ws) {
       const { data } = await supabase
@@ -87,7 +116,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       user: { id: user.id, email: user.email ?? null },
       profile: (profileRes.data as SessionState['profile']) ?? null,
       workspace: ws,
-      role: (memberRes.data?.role as SessionState['role']) ?? null,
+      role: current?.role ?? null,
+      workspaces: all,
       subscription,
       plans,
     });
@@ -112,9 +142,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     window.location.assign('/');
   }, [demo]);
 
+  const switchWorkspace = useCallback((id: string) => {
+    rememberWorkspace(id);
+    // Full reload so every cached query (data source, settings, dismissals) is for the new workspace.
+    window.location.assign('/app');
+  }, []);
+
   const value = useMemo<SessionState>(
-    () => ({ ...state, entitlements: computeEntitlements(state.subscription, state.plans), refresh: load, signOut }),
-    [state, load, signOut],
+    () => ({
+      ...state,
+      canEdit: state.role === 'owner' || state.role === 'admin',
+      entitlements: computeEntitlements(state.subscription, state.plans),
+      refresh: load,
+      signOut,
+      switchWorkspace,
+    }),
+    [state, load, signOut, switchWorkspace],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

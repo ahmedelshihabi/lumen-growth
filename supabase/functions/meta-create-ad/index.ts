@@ -12,7 +12,7 @@
 // Only the workspace owner may create ads, on an active plan that includes `create_ads`,
 // and only on ad accounts that belong to the workspace. While the Meta app is in
 // Development mode this works for people with a role on the app (admins/developers/testers).
-import { HttpError, adminClient, json, loadSubscription, readJson, requireUser, resolveWorkspace, serve } from '../_shared/http.ts';
+import { HttpError, adminClient, json, loadSubscription, readJson, requireEditor, requireUser, resolveWorkspace, serve } from '../_shared/http.ts';
 import { graphDelete, graphGet, graphGetAll, graphPost } from '../_shared/graph.ts';
 import { META_CREATE_SCOPES } from '../_shared/meta.ts';
 import { isSubscriptionActive } from '../_shared/period.ts';
@@ -52,7 +52,8 @@ serve(async (req) => {
   const body = await readJson<Body>(req);
 
   const { workspaceId, role } = await resolveWorkspace(admin, user.id, body.workspace_id);
-  if (role !== 'owner') throw new HttpError(403, 'owner_only', 'Only the workspace owner can create ads.');
+  // Owner or admin (viewers are read-only).
+  requireEditor(role);
 
   const sub = await loadSubscription(admin, workspaceId);
   if (!sub || !isSubscriptionActive(sub.status, sub.current_period_end ? new Date(sub.current_period_end) : null, new Date())) {

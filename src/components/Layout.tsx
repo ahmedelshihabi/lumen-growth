@@ -106,10 +106,31 @@ export function Layout({ route, children, badges }: { route: AppRoute; children:
   );
 
   const brand = (
-    <Link href="/" className="flex items-center gap-2.5 px-6 py-5">
-      <IconLogo />
-      <span className="text-[16px] font-extrabold tracking-tight text-brand-700 dark:text-white">{t('app.name')}</span>
-    </Link>
+    <div>
+      <Link href="/" className="flex items-center gap-2.5 px-6 py-5">
+        <IconLogo />
+        <span className="text-[16px] font-extrabold tracking-tight text-brand-700 dark:text-white">{t('app.name')}</span>
+      </Link>
+      {session.workspaces.length > 1 && (
+        <div className="-mt-2 px-6 pb-3">
+          <label className="sr-only" htmlFor="ws-switch">
+            {t('team.switch')}
+          </label>
+          <select
+            id="ws-switch"
+            className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-2 text-xs font-medium dark:border-zinc-700 dark:bg-zinc-900"
+            value={session.workspace?.id ?? ''}
+            onChange={(e) => session.switchWorkspace(e.target.value)}
+          >
+            {session.workspaces.map((w) => (
+              <option key={w.id} value={w.id} dir="auto">
+                {w.name} · {t(`team.role.${w.role}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+    </div>
   );
 
   const iconBtn =

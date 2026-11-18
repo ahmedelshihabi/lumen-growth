@@ -48,13 +48,19 @@ export async function resolveWorkspace(
   admin: SupabaseClient,
   userId: string,
   requested?: string | null,
-): Promise<{ workspaceId: string; role: 'owner' | 'member' }> {
+): Promise<{ workspaceId: string; role: 'owner' | 'admin' | 'viewer' }> {
   let q = admin.from('workspace_members').select('workspace_id, role').eq('user_id', userId).order('created_at').limit(1);
   if (requested) q = q.eq('workspace_id', requested);
   const { data, error } = await q.maybeSingle();
   if (error) throw error;
   if (!data) throw new HttpError(403, 'not_a_member');
-  return { workspaceId: data.workspace_id as string, role: data.role as 'owner' | 'member' };
+  const role = data.role === 'member' ? 'admin' : (data.role as 'owner' | 'admin' | 'viewer');
+  return { workspaceId: data.workspace_id as string, role };
+}
+
+/** Owner or admin; viewers are read-only. */
+export function requireEditor(role: 'owner' | 'admin' | 'viewer') {
+  if (role !== 'owner' && role !== 'admin') throw new HttpError(403, 'viewer_read_only', 'Viewers cannot change anything.');
 }
 
 export interface PlanRow {

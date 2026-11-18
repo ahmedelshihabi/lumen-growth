@@ -6,6 +6,7 @@ import { targetFor } from '../rules/types';
 import { getDisplayCurrency } from '../lib/format';
 import { useI18n } from '../i18n';
 import WorkspaceSettingsCards from '../components/WorkspaceSettingsCards';
+import TeamCard from '../components/TeamCard';
 
 type Draft = Record<string, { targetCpa: string; targetRoas: string }>;
 
@@ -229,6 +230,8 @@ export default function Settings() {
           </div>
         </form>
       </Card>
+
+      <TeamCard />
 
       <WorkspaceSettingsCards />
 

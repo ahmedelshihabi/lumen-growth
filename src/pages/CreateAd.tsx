@@ -577,7 +577,7 @@ export default function CreateAd() {
     );
   }
 
-  if (live && role !== 'owner') {
+  if (live && role !== 'owner' && role !== 'admin') {
     return (
       <>
         <PageHeader title={t('createAd.title')} />

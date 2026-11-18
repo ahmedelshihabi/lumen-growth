@@ -11,6 +11,7 @@ import Landing from './pages/public/Landing';
 import Pricing from './pages/public/Pricing';
 import Login from './pages/public/Login';
 import Admin from './pages/Admin';
+import AcceptInvite from './pages/AcceptInvite';
 
 function FullPageSpinner() {
   const { t } = useI18n();
@@ -49,6 +50,8 @@ export default function App() {
   if (path === '/pricing') return <Pricing />;
   if (path === '/login') return <Login />;
   if (path === '/admin') return <Authed>{() => <Admin />}</Authed>;
+  const invite = /^\/invite\/([a-f0-9]{32,128})$/.exec(path);
+  if (invite) return <Authed>{() => <AcceptInvite token={invite[1]} />}</Authed>;
 
   const route = appRouteFromPath(path);
   if (route) {

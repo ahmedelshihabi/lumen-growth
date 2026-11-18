@@ -9,7 +9,9 @@ serve(async (req) => {
   const admin = adminClient();
   const user = await requireUser(req, admin);
   const body = await readJson<{ plan_id?: string; workspace_id?: string; phone?: string }>(req);
-  const { workspaceId } = await resolveWorkspace(admin, user.id, body.workspace_id);
+  const { workspaceId, role } = await resolveWorkspace(admin, user.id, body.workspace_id);
+  // Only the owner pays for the workspace.
+  if (role !== 'owner') throw new HttpError(403, 'owner_only');
 
   const { data: plan, error: planErr } = await admin.from('plans').select('*').eq('id', body.plan_id ?? '').maybeSingle<PlanRow>();
   if (planErr) throw planErr;

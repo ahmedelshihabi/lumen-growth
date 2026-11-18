@@ -3,6 +3,7 @@ import { Link } from '../lib/router';
 import { useI18n } from '../i18n';
 import { useLoadedApp } from '../state/AppContext';
 import type { SnoozeFor } from '../rules/keys';
+import { useSession } from '../state/SessionContext';
 
 /**
  * "Why am I seeing this?" + hide (24h / 7d / dismiss) for one alert or recommendation.
@@ -11,6 +12,7 @@ import type { SnoozeFor } from '../rules/keys';
 export function ItemActions({ itemKey, why }: { itemKey: string; why: ReactNode }) {
   const { t } = useI18n();
   const { hide } = useLoadedApp();
+  const { canEdit } = useSession();
   const [open, setOpen] = useState(false);
   const opts: [SnoozeFor, string][] = [
     ['24h', t('hide.24h')],
@@ -23,6 +25,7 @@ export function ItemActions({ itemKey, why }: { itemKey: string; why: ReactNode 
         <button type="button" aria-expanded={open} onClick={() => setOpen((o) => !o)} className="font-medium text-brand-700 hover:underline dark:text-brand-300">
           {t('why.toggle')}
         </button>
+        {canEdit && (
         <details className="relative">
           <summary className="cursor-pointer list-none font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200 [&::-webkit-details-marker]:hidden">
             {t('hide.menu')} ▾
@@ -43,6 +46,7 @@ export function ItemActions({ itemKey, why }: { itemKey: string; why: ReactNode 
             ))}
           </div>
         </details>
+        )}
       </div>
       {open && (
         <div className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-xs leading-relaxed text-brand-950 dark:bg-brand-500/10 dark:text-brand-100">
@@ -60,6 +64,7 @@ export function ItemActions({ itemKey, why }: { itemKey: string; why: ReactNode 
 export function HiddenList({ items }: { items: { key: string; title: ReactNode }[] }) {
   const { t, locale } = useI18n();
   const { dismissals, restore } = useLoadedApp();
+  const { canEdit } = useSession();
   if (!items.length) return null;
   return (
     <details className="mt-4 rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -73,7 +78,7 @@ export function HiddenList({ items }: { items: { key: string; title: ReactNode }
               <span className="text-xs text-zinc-500 dark:text-zinc-400">
                 {until ? t('hide.until', { date: new Date(until).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' }) }) : t('hide.dismissed')}
               </span>
-              <button type="button" onClick={() => restore(key)} className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
+              <button type="button" disabled={!canEdit} onClick={() => restore(key)} className="rounded-full border border-zinc-200 px-3 py-1 text-xs font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800">
                 {t('hide.restore')}
               </button>
             </li>
