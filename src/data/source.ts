@@ -11,6 +11,7 @@ import { addDays, localToday } from '../lib/dates';
 import { filterRange } from '../lib/metrics';
 import { DEFAULT_TARGETS } from '../rules/targets';
 import type { TargetsByAccount } from '../rules/types';
+import { DEFAULT_WORKSPACE_SETTINGS, normalizeSettings, type WorkspaceSettings } from './settings';
 
 export interface DataSource {
   readonly kind: 'mock' | 'supabase';
@@ -32,10 +33,14 @@ export interface DataSource {
   getTargets(): Promise<TargetsByAccount>;
   /** Save goals for the given accounts; `null` removes every saved goal (back to automatic). */
   saveTargets(targets: TargetsByAccount | null): Promise<void>;
+  /** Workspace settings (currency, timezone, attribution, alert rules). */
+  getSettings(): Promise<WorkspaceSettings>;
+  saveSettings(settings: WorkspaceSettings): Promise<void>;
 }
 
 const BUDGETS_KEY = 'lumen.demoBudgets.v1';
 const TARGETS_KEY = 'lumen.targets.v1';
+const SETTINGS_KEY = 'lumen.demoSettings.v1';
 
 function readBudgetOverrides(): Record<string, number | null> {
   try {
@@ -87,6 +92,20 @@ export class MockDataSource implements DataSource {
       return { ...DEFAULT_TARGETS, ...(JSON.parse(localStorage.getItem(TARGETS_KEY) ?? '{}') as TargetsByAccount) };
     } catch {
       return { ...DEFAULT_TARGETS };
+    }
+  }
+  async getSettings(): Promise<WorkspaceSettings> {
+    try {
+      return normalizeSettings(JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? 'null'));
+    } catch {
+      return { ...DEFAULT_WORKSPACE_SETTINGS };
+    }
+  }
+  async saveSettings(settings: WorkspaceSettings) {
+    try {
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+    } catch {
+      /* storage unavailable */
     }
   }
   async saveTargets(targets: TargetsByAccount | null) {

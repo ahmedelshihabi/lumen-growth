@@ -66,3 +66,17 @@ describe('helpers', () => {
     expect(u.searchParams.get('redirect_uri')).toBe('https://app.example.com/app/connect');
   });
 });
+
+describe('attribution windows', () => {
+  const row = {
+    date_start: '2026-11-10', campaign_id: '1',
+    actions: [{ action_type: 'omni_purchase', value: '10', '7d_click': '7', '1d_view': '2' }],
+    action_values: [{ action_type: 'omni_purchase', value: '1000', '7d_click': '700', '1d_view': '150' }],
+  };
+  it('uses the default value without windows and sums the chosen windows otherwise', () => {
+    expect(mapInsightRow(row, 'campaign')!.conversions).toBe(10);
+    const r = mapInsightRow(row, 'campaign', ['7d_click', '1d_view'])!;
+    expect([r.conversions, r.revenue]).toEqual([9, 850]);
+    expect(mapInsightRow(row, 'campaign', ['1d_click'])!.conversions).toBe(10); // field missing -> default
+  });
+});

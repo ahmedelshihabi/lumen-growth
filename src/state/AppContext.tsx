@@ -3,6 +3,7 @@ import type { Dataset } from '../data/types';
 import { loadDataset, type DataSource } from '../data/source';
 import { setDisplayCurrency } from '../lib/format';
 import { deriveTargets } from '../rules/targets';
+import { DEFAULT_WORKSPACE_SETTINGS, anomalyConfigFrom, evalConfigFrom, type WorkspaceSettings } from '../data/settings';
 import type { RulesInput, TargetsByAccount } from '../rules/types';
 
 export type RangeDays = 7 | 14 | 30 | 90;
@@ -42,6 +43,9 @@ interface AppState {
   autoTargetIds: string[];
   setTargets: (t: TargetsByAccount) => void;
   resetTargets: () => void;
+  /** Workspace settings (currency, timezone, attribution, alert rules); shared by the team. */
+  settings: WorkspaceSettings;
+  saveSettings: (s: WorkspaceSettings) => Promise<void>;
   theme: Theme;
   toggleTheme: () => void;
   /** Convenience bundle for the rules engines (null while loading). */
@@ -65,15 +69,18 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
     return ([7, 14, 30, 90] as const).includes(v as RangeDays) ? (v as RangeDays) : 30;
   });
   const [savedTargets, setSavedTargets] = useState<TargetsByAccount>({});
+  const [settings, setSettings] = useState<WorkspaceSettings>(DEFAULT_WORKSPACE_SETTINGS);
   const [theme, setTheme] = useState<Theme>(initialTheme);
 
   useEffect(() => {
     let alive = true;
     setError(null);
-    Promise.all([loadDataset(source), source.getTargets()])
-      .then(([d, saved]) => {
+    Promise.all([loadDataset(source), source.getTargets(), source.getSettings()])
+      .then(([d, saved, ws]) => {
         if (!alive) return;
-        if (d.accounts[0]) setDisplayCurrency(d.accounts[0].currency);
+        const currency = ws.currency ?? d.accounts[0]?.currency;
+        if (currency) setDisplayCurrency(currency);
+        setSettings(ws);
         setSavedTargets(saved);
         setData(d);
       })
@@ -120,6 +127,16 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
       .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
   }, [source]);
 
+  const saveSettings = useCallback(
+    async (next: WorkspaceSettings) => {
+      await source.saveSettings(next);
+      const currency = next.currency ?? data?.accounts[0]?.currency;
+      if (currency) setDisplayCurrency(currency);
+      setSettings(next);
+    },
+    [source, data],
+  );
+
   const toggleTheme = useCallback(() => {
     setTheme((t) => {
       const next = t === 'dark' ? 'light' : 'dark';
@@ -139,14 +156,16 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
             asOf: data.asOf,
             targets,
             accountNames: Object.fromEntries(data.accounts.map((a) => [a.id, a.name])),
+            anomalyConfig: anomalyConfigFrom(settings.alerts),
+            evalConfig: evalConfigFrom(settings.alerts),
           }
         : null,
-    [data, targets],
+    [data, targets, settings],
   );
 
   const value = useMemo<AppState>(
-    () => ({ source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, theme, toggleTheme, rulesInput }),
-    [source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, theme, toggleTheme, rulesInput],
+    () => ({ source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, settings, saveSettings, theme, toggleTheme, rulesInput }),
+    [source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, settings, saveSettings, theme, toggleTheme, rulesInput],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

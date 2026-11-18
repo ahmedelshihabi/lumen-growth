@@ -22,6 +22,9 @@ import type {
 } from './types';
 import { addDays, parseISO } from '../lib/dates';
 
+/** Demo data is an Egyptian store: profiles below are written in USD and converted at ~50 EGP/USD. */
+const FX = 50;
+
 // ---------------------------------------------------------------- RNG ----
 
 function hashString(s: string): number {
@@ -54,9 +57,9 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 // ----------------------------------------------------------- Accounts ----
 
 export const ACCOUNTS: AdAccount[] = [
-  { id: 'act_1048203311', name: 'Lumen Store - Meta', channel: 'meta', currency: 'USD', timezone: 'America/New_York' },
-  { id: '482-913-2207', name: 'Lumen Store - Google Ads', channel: 'google', currency: 'USD', timezone: 'America/New_York' },
-  { id: '7190345528810', name: 'Lumen Store - TikTok', channel: 'tiktok', currency: 'USD', timezone: 'America/New_York' },
+  { id: 'act_1048203311', name: 'Lumen Store - Meta', channel: 'meta', currency: 'EGP', timezone: 'Africa/Cairo' },
+  { id: '482-913-2207', name: 'Lumen Store - Google Ads', channel: 'google', currency: 'EGP', timezone: 'Africa/Cairo' },
+  { id: '7190345528810', name: 'Lumen Store - TikTok', channel: 'tiktok', currency: 'EGP', timezone: 'Africa/Cairo' },
 ];
 
 const accountFor = (c: Channel) => ACCOUNTS.find((a) => a.channel === c)!.id;
@@ -206,8 +209,8 @@ function campaignDaily(p: CampaignProfile, asOf: ISODate): CampaignDailyMetric[]
     const weekly = dow === 0 || dow === 6 ? 1.08 : dow === 1 ? 0.95 : 1;
     const growth = 0.92 + 0.1 * ((HISTORY_DAYS - k) / HISTORY_DAYS);
 
-    const spend = p.dailyBudget * p.pace * weekly * growth * mods.spend * r(0.92, 1.08);
-    const cpm = p.cpm * r(0.93, 1.07);
+    const spend = p.dailyBudget * FX * p.pace * weekly * growth * mods.spend * r(0.92, 1.08);
+    const cpm = p.cpm * FX * r(0.93, 1.07);
     const impressions = Math.round((spend / cpm) * 1000);
     const t = (HISTORY_DAYS - k) / HISTORY_DAYS;
     const frequency = (p.freq[0] + (p.freq[1] - p.freq[0]) * t) * mods.freq * r(0.97, 1.03);
@@ -216,7 +219,7 @@ function campaignDaily(p: CampaignProfile, asOf: ISODate): CampaignDailyMetric[]
     const clicks = Math.round(impressions * ctr);
     const roas = p.roas * mods.roas * r(0.93, 1.07);
     const revenue = spend * roas;
-    const conversions = revenue / (p.aov * r(0.97, 1.03));
+    const conversions = revenue / (p.aov * FX * r(0.97, 1.03));
 
     rows.push({
       date,
@@ -252,7 +255,7 @@ function creativeDaily(c: CreativeProfile, rows: CampaignDailyMetric[], asOf: IS
     const ctr = (row.clicks / Math.max(1, row.impressions)) * ctrMult;
     const spend = row.spend * share;
     const revenue = row.revenue * share * roasMult;
-    const aov = row.conversions > 0 ? row.revenue / row.conversions : 80;
+    const aov = row.conversions > 0 ? row.revenue / row.conversions : 80 * FX;
     out.push({
       date: row.date,
       creativeId: c.id,
@@ -278,8 +281,8 @@ export function generateDataset(asOf: ISODate): Dataset {
     name: p.name,
     objective: p.objective,
     status: p.status,
-    dailyBudget: p.dailyBudget,
-    monthlyBudget: Math.round((p.dailyBudget * 30.4 * p.plan) / 100) * 100,
+    dailyBudget: p.dailyBudget * FX,
+    monthlyBudget: Math.round((p.dailyBudget * FX * 30.4 * p.plan) / 1000) * 1000,
     startDate: addDays(asOf, -(p.ageDays - 1)),
   }));
 

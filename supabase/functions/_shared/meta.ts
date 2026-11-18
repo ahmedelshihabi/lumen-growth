@@ -41,7 +41,18 @@ export function metaOAuthDialogUrl(appId: string, redirectUri: string, state: st
 export interface MetaAction {
   action_type: string;
   value: string;
+  /** Per-window values when the request sets action_attribution_windows, e.g. "7d_click": "3". */
+  [window: string]: string | undefined;
 }
+
+/** Workspace attribution setting -> Meta windows. 'default' = the ad account's own setting. */
+// VERIFY: action_attribution_windows values and that each action then carries one field per window.
+export const ATTRIBUTION_WINDOWS: Record<string, string[] | null> = {
+  default: null,
+  '1d_click': ['1d_click'],
+  '7d_click': ['7d_click'],
+  '7d_click_1d_view': ['7d_click', '1d_view'],
+};
 
 /** One row of GET /{act_id}/insights with time_increment=1. Numbers arrive as strings. */
 export interface MetaInsightRow {
@@ -90,16 +101,22 @@ const num = (s: string | number | undefined | null): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
-export function pickAction(list: MetaAction[] | undefined, types: string[]): number {
+export function pickAction(list: MetaAction[] | undefined, types: string[], windows?: string[] | null): number {
   if (!list?.length) return 0;
   for (const t of types) {
     const hit = list.find((a) => a.action_type === t);
-    if (hit) return num(hit.value);
+    if (!hit) continue;
+    if (windows?.length) {
+      const present = windows.filter((w) => hit[w] !== undefined);
+      // Fall back to the default value if Meta did not return the per-window fields.
+      return present.length ? present.reduce((s, w) => s + num(hit[w]), 0) : num(hit.value);
+    }
+    return num(hit.value);
   }
   return 0;
 }
 
-export function mapInsightRow(row: MetaInsightRow, level: 'campaign' | 'ad'): InsightDailyRecord | null {
+export function mapInsightRow(row: MetaInsightRow, level: 'campaign' | 'ad', windows?: string[] | null): InsightDailyRecord | null {
   if (!row.campaign_id || !row.date_start) return null;
   if (level === 'ad' && !row.ad_id) return null;
   return {
@@ -111,8 +128,8 @@ export function mapInsightRow(row: MetaInsightRow, level: 'campaign' | 'ad'): In
     impressions: Math.round(num(row.impressions)),
     reach: Math.round(num(row.reach)),
     clicks: Math.round(num(row.clicks)),
-    conversions: pickAction(row.actions, PURCHASE_ACTION_TYPES),
-    revenue: Math.round(pickAction(row.action_values, PURCHASE_ACTION_TYPES) * 100) / 100,
+    conversions: pickAction(row.actions, PURCHASE_ACTION_TYPES, windows),
+    revenue: Math.round(pickAction(row.action_values, PURCHASE_ACTION_TYPES, windows) * 100) / 100,
     video_views_3s: Math.round(pickAction(row.actions, [VIDEO_3S_ACTION_TYPE])),
     frequency: Math.round(num(row.frequency) * 1000) / 1000,
     messaging_conversations: Math.round(pickAction(row.actions, MESSAGING_ACTION_TYPES)),

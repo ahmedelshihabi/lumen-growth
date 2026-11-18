@@ -36,3 +36,13 @@ export const fmtCompact = (n: number) => compact.format(n);
 export const fmtPct = (n: number, digits = 2) => `${(n * 100).toFixed(digits)}%`;
 export const fmtRoas = (n: number) => `${n.toFixed(2)}x`;
 export const fmtSignedPct = (n: number, digits = 1) => `${n >= 0 ? '+' : ''}${(n * 100).toFixed(digits)}%`;
+
+/**
+ * Rough units of each currency per 1 USD, used ONLY to scale rule thresholds
+ * (minimum spend, priority bands) so "500" doesn't mean $500 in one account and
+ * EGP 500 (~$10) in another. Never used to convert amounts shown to the user.
+ */
+const USD_SCALE: Record<string, number> = {
+  USD: 1, EUR: 0.9, GBP: 0.8, EGP: 50, SAR: 3.75, AED: 3.67, QAR: 3.64, KWD: 0.31, BHD: 0.38, OMR: 0.38, JOD: 0.71,
+};
+export const currencyScale = (c: string = currency) => USD_SCALE[c.toUpperCase()] ?? 1;

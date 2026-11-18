@@ -10,7 +10,7 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.119.0';
 import { HttpError, adminClient, json, loadSubscription, requireUser, resolveWorkspace, serve } from '../_shared/http.ts';
 import { graphGetAll } from '../_shared/graph.ts';
-import { budgetToMajor, lastNDaysRange, mapInsightRow, type MetaInsightRow } from '../_shared/meta.ts';
+import { ATTRIBUTION_WINDOWS, budgetToMajor, lastNDaysRange, mapInsightRow, type MetaInsightRow } from '../_shared/meta.ts';
 import { isSubscriptionActive } from '../_shared/period.ts';
 
 const SYNC_DAYS = 30;
@@ -36,7 +36,7 @@ function adFormat(objectType: string | undefined): string {
   return 'image';
 }
 
-async function syncAccount(admin: SupabaseClient, workspaceId: string, acc: AccountRow, token: string) {
+async function syncAccount(admin: SupabaseClient, workspaceId: string, acc: AccountRow, token: string, windows: string[] | null) {
   const { since, until } = lastNDaysRange(new Date(), SYNC_DAYS);
   const timeRange = JSON.stringify({ since, until });
 
@@ -93,12 +93,12 @@ async function syncAccount(admin: SupabaseClient, workspaceId: string, acc: Acco
     ].join(',');
     const raw = await graphGetAll<MetaInsightRow>(
       `${acc.meta_account_id}/insights`,
-      { level, time_increment: '1', time_range: timeRange, fields, limit: '500' },
+      { level, time_increment: '1', time_range: timeRange, fields, limit: '500', ...(windows ? { action_attribution_windows: JSON.stringify(windows) } : {}) },
       token,
       100,
     );
     const rows = raw
-      .map((r) => mapInsightRow(r, level))
+      .map((r) => mapInsightRow(r, level, windows))
       .filter((r): r is NonNullable<typeof r> => r !== null)
       .map((r) => ({ ...r, workspace_id: workspaceId, ad_account_id: acc.id, currency: acc.currency, fetched_at: new Date().toISOString() }));
     await upsertChunks(admin, 'insights_daily', rows, 'workspace_id,level,campaign_id,ad_id,date');
@@ -126,10 +126,14 @@ async function syncWorkspace(admin: SupabaseClient, workspaceId: string) {
     .limit(limit);
   if (error) throw error;
 
+  // Workspace attribution window (Settings); absent row or 'default' = the ad account's setting.
+  const { data: ws } = await admin.from('workspace_settings').select('attribution_window').eq('workspace_id', workspaceId).maybeSingle();
+  const windows = ATTRIBUTION_WINDOWS[(ws?.attribution_window as string) ?? 'default'] ?? null;
+
   const results: Record<string, unknown>[] = [];
   for (const acc of (accounts ?? []) as AccountRow[]) {
     try {
-      const r = await syncAccount(admin, workspaceId, acc, conn.access_token as string);
+      const r = await syncAccount(admin, workspaceId, acc, conn.access_token as string, windows);
       await admin.from('ad_accounts').update({ last_synced_at: new Date().toISOString(), last_sync_error: null }).eq('id', acc.id);
       results.push({ account: acc.meta_account_id, ...r });
     } catch (e) {

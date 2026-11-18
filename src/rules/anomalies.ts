@@ -2,7 +2,7 @@ import type { Campaign, CampaignDailyMetric, Channel, ISODate } from '../data/ty
 import { addDays } from '../lib/dates';
 import { aggregate, safeDiv } from '../lib/metrics';
 import { audienceType, campaignKind } from './evaluate';
-import { fmtMoney, fmtMoney2 } from '../lib/format';
+import { currencyScale, fmtMoney, fmtMoney2 } from '../lib/format';
 import { msg, renderEn, type Msg } from './msg';
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
@@ -66,6 +66,8 @@ export interface AnomalyInput {
   asOf: ISODate;
   /** Account display names for account-level alerts (falls back to the account id). */
   accountNames?: Record<string, string>;
+  /** Workspace thresholds; used when no explicit config is passed. */
+  anomalyConfig?: AnomalyConfig;
 }
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -114,7 +116,7 @@ const texts = (titleMsg: Msg, detailMsg: Msg) => ({
  *
  * Missing rows are treated as zero-delivery days (that is how platform APIs report them).
  */
-export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEFAULT_ANOMALY_CONFIG): Anomaly[] {
+export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = input.anomalyConfig ?? DEFAULT_ANOMALY_CONFIG): Anomaly[] {
   const { campaigns, campaignDaily, asOf } = input;
   const byCampaign = new Map<string, Map<string, DayRow>>();
   for (const r of campaignDaily) {
@@ -123,6 +125,8 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
     m.set(r.date, r);
   }
 
+  // Thresholds are in USD; scale them to the account currency.
+  config = { ...config, minSpend: config.minSpend * currencyScale() };
   const out: Anomaly[] = [];
   const on = (t: AnomalyType) => !config.disabled?.includes(t);
   for (const c of campaigns) {

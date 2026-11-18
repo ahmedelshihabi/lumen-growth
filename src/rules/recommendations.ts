@@ -1,6 +1,6 @@
 import type { Channel, CreativeDailyMetric, DateRange } from '../data/types';
 import { groupBy, rangeEnding } from '../lib/metrics';
-import { fmtMoney } from '../lib/format';
+import { currencyScale, fmtMoney } from '../lib/format';
 import { detectAnomalies, DEFAULT_ANOMALY_CONFIG } from './anomalies';
 import { detectFatigue } from './fatigue';
 import { computePacing, pacingAdvice } from './pacing';
@@ -49,6 +49,7 @@ export interface Recommendation {
 
 export interface RecommendationConfig {
   windowDays: number;
+  /** Minimum spend in the window, in USD (scaled to the account currency). */
   minSpend: number;
   /** Share of the daily budget moved away from a "cut" campaign. */
   cutShare: number;
@@ -73,10 +74,12 @@ const money = (n: number) => fmtMoney(Math.round(n));
 const x = (n: number) => n.toFixed(1);
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+/** Priority bands are in USD and scaled to the display currency (EGP 250k, not EGP 5k, is "high"). */
 function priorityFor(monthly: number, confidence: Confidence, forceHigh = false): Priority {
   if (confidence === 'low') return 'low';
-  if (forceHigh || monthly >= 5000) return 'high';
-  if (monthly >= 1000) return 'medium';
+  const usd = monthly / currencyScale();
+  if (forceHigh || usd >= 5000) return 'high';
+  if (usd >= 1000) return 'medium';
   return 'low';
 }
 
@@ -114,19 +117,20 @@ export function generateRecommendations(
   config: RecommendationConfig = DEFAULT_RECOMMENDATION_CONFIG,
 ): Recommendation[] {
   const { campaigns, campaignDaily, creatives, creativeDaily, asOf, targets } = input;
-  const cfg = config.eval;
+  const cfg = input.evalConfig ?? config.eval;
   const range = rangeEnding(asOf, config.windowDays);
   const summaries = summarizeCampaigns(campaigns, campaignDaily, range, targets, cfg);
   const perDay = (n: number, s: CampaignSummary) => n / Math.max(1, s.quality.activeDays);
   const recs: Recommendation[] = [];
   const handled = new Set<string>();
+  const minSpend = config.minSpend * currencyScale();
 
   // Judged campaigns: running, enough spend AND enough data, with a goal to compare to.
   // Awareness is never paused or cut on performance (it is not bought for ROAS).
   const judged = summaries.filter(
     (s) =>
       s.campaign.status !== 'PAUSED' &&
-      s.totals.spend >= config.minSpend &&
+      s.totals.spend >= minSpend &&
       s.quality.sufficient &&
       s.verdict !== null &&
       s.kind !== 'awareness',
@@ -222,7 +226,7 @@ export function generateRecommendations(
 
   // --- Frequency over the cap for its audience type ----------------------------
   for (const s of summaries) {
-    if (s.campaign.status === 'PAUSED' || !s.frequencyOverCap || s.totals.spend < config.minSpend) continue;
+    if (s.campaign.status === 'PAUSED' || !s.frequencyOverCap || s.totals.spend < minSpend) continue;
     const protect = perDay(s.totals.revenue, s) * DAYS_PER_MONTH * 0.1;
     recs.push({
       id: `expand_audience:${s.campaign.id}`,
@@ -242,7 +246,7 @@ export function generateRecommendations(
 
   // --- Delivery stopped (from the anomaly rules) ----------------------------------
   const byId = new Map(summaries.map((s) => [s.campaign.id, s]));
-  for (const a of detectAnomalies({ campaigns, campaignDaily, asOf }, DEFAULT_ANOMALY_CONFIG)) {
+  for (const a of detectAnomalies({ campaigns, campaignDaily, asOf }, input.anomalyConfig ?? DEFAULT_ANOMALY_CONFIG)) {
     if (a.type !== 'spend_stopped') continue;
     const s = byId.get(a.campaignId);
     if (!s) continue;
@@ -329,7 +333,7 @@ export function generateRecommendations(
   const lookback = rangeEnding(asOf, config.relaunchLookbackDays);
   for (const s of summarizeCampaigns(campaigns, campaignDaily, lookback, targets, cfg)) {
     if (s.campaign.status !== 'PAUSED' || s.kind !== 'sales') continue;
-    if (s.totals.spend < config.minSpend || !s.quality.sufficient || s.verdict !== 'scale') continue;
+    if (s.totals.spend < minSpend || !s.quality.sufficient || s.verdict !== 'scale') continue;
     const seasonal = looksSeasonal(s.campaign.name);
     const confidence: Confidence = seasonal ? 'low' : s.quality.confidence;
     const dailySpend = s.totals.spend / s.quality.activeDays;

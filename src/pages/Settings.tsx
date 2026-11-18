@@ -5,6 +5,7 @@ import type { TargetsByAccount } from '../rules/types';
 import { targetFor } from '../rules/types';
 import { getDisplayCurrency } from '../lib/format';
 import { useI18n } from '../i18n';
+import WorkspaceSettingsCards from '../components/WorkspaceSettingsCards';
 
 type Draft = Record<string, { targetCpa: string; targetRoas: string }>;
 
@@ -90,7 +91,8 @@ function BudgetsCard() {
                 </div>
                 <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
                   <span className="sr-only">{c.name}</span>
-                  <div className="relative">
+                  {/* Same direction as the LTR number input, so the currency suffix and the padding are on the same side. */}
+                  <div className="relative" dir="ltr">
                     <input
                       type="number"
                       inputMode="decimal"
@@ -227,6 +229,8 @@ export default function Settings() {
           </div>
         </form>
       </Card>
+
+      <WorkspaceSettingsCards />
 
       <BudgetsCard />
 

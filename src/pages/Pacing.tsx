@@ -32,15 +32,15 @@ function PacingBar({ p, color }: { p: { monthlyBudget: number; mtdSpend: number;
 }
 
 export default function Pacing() {
-  const { data, theme, targets } = useLoadedApp();
+  const { data, theme, targets, rulesInput } = useLoadedApp();
   const { t } = useI18n();
   // Campaigns without a monthly plan (Meta has none) cannot be paced: they are listed as missing.
   const missing = data.campaigns.filter((c) => !(c.monthlyBudget > 0)).length;
 
   // Same evaluation as Recommendations (last 14 days), so both pages give the same advice.
   const verdicts = useMemo(
-    () => new Map(summarizeCampaigns(data.campaigns, data.campaignDaily, rangeEnding(data.asOf, 14), targets).map((s) => [s.campaign.id, s])),
-    [data, targets],
+    () => new Map(summarizeCampaigns(data.campaigns, data.campaignDaily, rangeEnding(data.asOf, 14), targets, rulesInput.evalConfig).map((s) => [s.campaign.id, s])),
+    [data, targets, rulesInput.evalConfig],
   );
   const rows = useMemo(
     () =>

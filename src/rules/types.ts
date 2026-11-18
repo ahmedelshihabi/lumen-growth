@@ -19,6 +19,9 @@ export interface RulesInput {
   targets: TargetsByAccount;
   /** Ad account display names by account id (used by account-level alerts). */
   accountNames?: Record<string, string>;
+  /** Thresholds from workspace settings (defaults when absent). */
+  anomalyConfig?: import('./anomalies').AnomalyConfig;
+  evalConfig?: import('./evaluate').EvalConfig;
 }
 
 export const FALLBACK_TARGET: AccountTarget = { targetCpa: 35, targetRoas: 2.5 };

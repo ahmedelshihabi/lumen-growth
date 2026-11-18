@@ -8,6 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AdAccount, Campaign, CampaignDailyMetric, CampaignStatus, Creative, CreativeDailyMetric, CreativeFormat, DateRange, ISODate } from './types';
 import type { DataSource } from './source';
 import type { TargetsByAccount } from '../rules/types';
+import { DEFAULT_WORKSPACE_SETTINGS, normalizeSettings, type WorkspaceSettings } from './settings';
 import { addDays, localToday } from '../lib/dates';
 import { mapObjective } from '../../supabase/functions/_shared/meta.ts';
 
@@ -182,6 +183,37 @@ export class SupabaseDataSource implements DataSource {
       const { error } = await this.db.from('campaign_budgets').delete().eq('workspace_id', this.workspaceId).in('campaign_id', deletes);
       if (error) throw error;
     }
+  }
+
+  async getSettings(): Promise<WorkspaceSettings> {
+    const { data, error } = await this.db
+      .from('workspace_settings')
+      .select('currency, timezone, attribution_window, alert_config')
+      .eq('workspace_id', this.workspaceId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return { ...DEFAULT_WORKSPACE_SETTINGS };
+    return normalizeSettings({
+      currency: data.currency,
+      timezone: data.timezone,
+      attributionWindow: data.attribution_window,
+      alerts: data.alert_config,
+    });
+  }
+
+  async saveSettings(s: WorkspaceSettings): Promise<void> {
+    const { error } = await this.db.from('workspace_settings').upsert(
+      {
+        workspace_id: this.workspaceId,
+        currency: s.currency,
+        timezone: s.timezone,
+        attribution_window: s.attributionWindow,
+        alert_config: s.alerts,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'workspace_id' },
+    );
+    if (error) throw error;
   }
 
   async getTargets(): Promise<TargetsByAccount> {

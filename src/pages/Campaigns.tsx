@@ -53,7 +53,7 @@ const COLUMNS: { key: SortKey; label: DictKey; align?: 'right'; className?: stri
 ];
 
 export default function Campaigns() {
-  const { data, rangeDays, targets } = useLoadedApp();
+  const { data, rangeDays, targets, rulesInput } = useLoadedApp();
   const { t } = useI18n();
   const tr = t;
   const [query, setQuery] = useState('');
@@ -63,8 +63,8 @@ export default function Campaigns() {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'spend', dir: 'desc' });
 
   const summaries = useMemo(
-    () => summarizeCampaigns(data.campaigns, data.campaignDaily, rangeEnding(data.asOf, rangeDays), targets),
-    [data, rangeDays, targets],
+    () => summarizeCampaigns(data.campaigns, data.campaignDaily, rangeEnding(data.asOf, rangeDays), targets, rulesInput.evalConfig),
+    [data, rangeDays, targets, rulesInput.evalConfig],
   );
 
   const rows = useMemo(() => {

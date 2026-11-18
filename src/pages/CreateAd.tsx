@@ -47,6 +47,7 @@ interface CreateResult {
 /** Countries offered as quick picks (Egypt + GCC + nearby markets). */
 const COUNTRIES = ['EG', 'SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'JO', 'IQ', 'LB', 'MA', 'US', 'GB'];
 
+const UNIT_KEYS = ['currencyUnit.EGP', 'currencyUnit.SAR', 'currencyUnit.AED', 'currencyUnit.KWD', 'currencyUnit.QAR', 'currencyUnit.USD'];
 const DEMO_PAGES: PageOption[] = [{ id: '100000000000001', name: 'Lumen Store' }];
 const DEMO_PIXELS: PixelOption[] = [{ id: '200000000000001', name: 'Lumen Store Pixel' }];
 
@@ -438,7 +439,7 @@ export default function CreateAd() {
       <PageHeader title={t('createAd.title')} subtitle={t('createAd.subtitle')} />
 
       <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-200">
-        {t('createAd.pausedNote')}
+        {t('createAd.pausedNote', { unit: t(UNIT_KEYS.includes(`currencyUnit.${account?.currency ?? 'EGP'}` as DictKey) ? (`currencyUnit.${account?.currency ?? 'EGP'}` as DictKey) : 'currencyUnit.other') })}
       </div>
       {loadError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950 dark:text-red-300">
