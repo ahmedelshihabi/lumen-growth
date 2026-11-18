@@ -9,6 +9,8 @@ import { lacksValueTracking, metricHealth, type Health } from '../rules/health';
 import type { CampaignStatus, Channel } from '../data/types';
 import { useI18n } from '../i18n';
 import type { DictKey } from '../i18n/dict';
+import CampaignDetail from '../components/CampaignDetail';
+import { downloadCsv } from '../lib/csv';
 
 type SortKey = 'name' | 'status' | 'budget' | 'spend' | 'revenue' | 'roas' | 'cpa' | 'ctr' | 'frequency' | 'health';
 
@@ -67,6 +69,10 @@ export default function Campaigns() {
     [data, rangeDays, targets, rulesInput.evalConfig],
   );
 
+  const [openId, setOpenId] = useState<string | null>(null);
+  const range = useMemo(() => rangeEnding(data.asOf, rangeDays), [data.asOf, rangeDays]);
+  const open = summaries.find((s) => s.campaign.id === openId) ?? null;
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = summaries.filter(
@@ -89,13 +95,51 @@ export default function Campaigns() {
   const toggleSort = (key: SortKey) =>
     setSort((s) => (s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' || key === 'cpa' || key === 'health' ? 'asc' : 'desc' }));
 
+
+  // Exports exactly what the table shows (filters and sort applied).
+  const exportCampaigns = () =>
+    downloadCsv(
+      `lumen-campaigns-${range.start}_${range.end}.csv`,
+      ['campaign', 'channel', 'objective', 'judged_on', 'status', 'daily_budget', 'spend', 'revenue', 'roas', 'conversions', 'cpa', 'ctr_pct', 'frequency', 'health', 'vs_goal_pct'],
+      rows.map((s) => [
+        s.campaign.name,
+        s.campaign.channel,
+        s.campaign.objective,
+        s.kind,
+        s.campaign.status,
+        s.campaign.dailyBudget,
+        s.totals.spend,
+        s.totals.revenue,
+        s.totals.spend > 0 && s.kind === 'sales' ? s.totals.roas : null,
+        s.totals.conversions,
+        s.totals.conversions > 0 ? s.totals.cpa : null,
+        s.totals.ctr * 100,
+        s.frequency,
+        s.health,
+        s.ratio === null ? null : s.ratio * 100,
+      ]),
+    );
+
   return (
     <>
       <PageHeader
         title={t('nav.campaigns')}
         subtitle={t('campaigns.subtitle', { n: summaries.length, days: rangeDays })}
-        actions={<RangePicker />}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={exportCampaigns}
+              disabled={!rows.length}
+              className="h-9 rounded-full border border-zinc-200 px-3 text-xs font-semibold hover:bg-zinc-100 disabled:opacity-50 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            >
+              {t('common.exportCsv')}
+            </button>
+            <RangePicker />
+          </div>
+        }
       />
+      {open && <CampaignDetail summary={open} range={range} onClose={() => setOpenId(null)} />}
 
       <Card>
         <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 p-3 dark:border-zinc-800">
@@ -157,7 +201,7 @@ export default function Campaigns() {
               </div>
             );
             return (
-              <li key={s.campaign.id} className="px-4 py-3">
+              <li key={s.campaign.id} className="cursor-pointer px-4 py-3 active:bg-brand-50 dark:active:bg-brand-500/10" onClick={() => setOpenId(s.campaign.id)}>
                 <div className="flex items-start gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium" title={s.campaign.name}>
@@ -222,11 +266,23 @@ export default function Campaigns() {
                 const active = t.spend > 0;
                 const noValue = lacksValueTracking(t);
                 return (
-                  <tr key={s.campaign.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
+                  <tr
+                    key={s.campaign.id}
+                    onClick={() => setOpenId(s.campaign.id)}
+                    className="cursor-pointer border-t border-zinc-100 hover:bg-brand-50/60 dark:border-zinc-800 dark:hover:bg-brand-500/10"
+                  >
                     <td className="max-w-[280px] py-2.5 ps-4 pe-3">
-                      <div className="truncate font-medium text-zinc-900 dark:text-zinc-100" title={s.campaign.name}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenId(s.campaign.id);
+                        }}
+                        className="block max-w-full truncate text-start font-medium text-zinc-900 hover:text-brand-700 hover:underline dark:text-zinc-100 dark:hover:text-brand-300"
+                        title={s.campaign.name}
+                      >
                         <bdi>{s.campaign.name}</bdi>
-                      </div>
+                      </button>
                       <div className="mt-0.5 flex items-center gap-2">
                         <ChannelBadge channel={s.campaign.channel} />
                         <span className="text-[11px] text-zinc-400">{s.campaign.objective.toLowerCase()}</span>
