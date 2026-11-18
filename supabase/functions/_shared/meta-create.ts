@@ -8,11 +8,54 @@
  */
 import { majorToMinor } from './meta.ts';
 
-export const CREATE_OBJECTIVES = ['OUTCOME_TRAFFIC', 'OUTCOME_SALES'] as const;
+/**
+ * OUTCOME_ENGAGEMENT is used for click-to-message ads (WhatsApp / Messenger / Instagram Direct).
+ * OUTCOME_LEADS is website leads (pixel event); instant forms are not supported yet.
+ */
+export const CREATE_OBJECTIVES = ['OUTCOME_TRAFFIC', 'OUTCOME_SALES', 'OUTCOME_LEADS', 'OUTCOME_ENGAGEMENT'] as const;
 export type CreateObjective = (typeof CREATE_OBJECTIVES)[number];
 
-export const CTA_TYPES = ['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP', 'CONTACT_US', 'ORDER_NOW'] as const;
+export const MESSAGE_APPS = ['WHATSAPP', 'MESSENGER', 'INSTAGRAM_DIRECT'] as const;
+export type MessageApp = (typeof MESSAGE_APPS)[number];
+
+/** Pixel / dataset standard events Lumen lets you optimise for. */
+export const CONVERSION_EVENTS = [
+  'PURCHASE',
+  'ADD_TO_CART',
+  'INITIATED_CHECKOUT',
+  'ADD_PAYMENT_INFO',
+  'COMPLETE_REGISTRATION',
+  'LEAD',
+  'CONTACT',
+  'CONTENT_VIEW',
+] as const;
+export type ConversionEvent = (typeof CONVERSION_EVENTS)[number];
+
+export const CTA_TYPES = ['LEARN_MORE', 'SHOP_NOW', 'SIGN_UP', 'CONTACT_US', 'ORDER_NOW', 'GET_OFFER', 'SUBSCRIBE', 'BOOK_NOW'] as const;
 export type CtaType = (typeof CTA_TYPES)[number];
+
+export const PLATFORMS = ['facebook', 'instagram', 'messenger', 'audience_network'] as const;
+export type Platform = (typeof PLATFORMS)[number];
+
+/** A city (with radius) or region from GET /search?type=adgeolocation. */
+export interface GeoLocation {
+  key: string;
+  name: string;
+  type: 'city' | 'region';
+  /** Cities only, in km (Meta allows 10-80 km; 0 = the city itself). */
+  radiusKm?: number;
+}
+
+export interface CarouselCard {
+  headline: string;
+  description?: string;
+  /** Defaults to the main URL. */
+  url?: string;
+}
+
+export const MAX_CAROUSEL_CARDS = 10;
+export const MAX_LOCATIONS = 50;
+export const MAX_AUDIENCES = 20;
 
 export const GENDERS = ['all', 'male', 'female'] as const;
 export type Gender = (typeof GENDERS)[number];
@@ -122,7 +165,34 @@ export interface CreateAdInput {
   cta: CtaType;
   /** Interests, behaviours and demographics. People matching ANY of them are targeted. */
   detailedTargeting?: TargetingItem[];
+  /** OUTCOME_ENGAGEMENT only: where the conversation happens. */
+  messageApp?: MessageApp;
+  /** OUTCOME_SALES / OUTCOME_LEADS: pixel event to optimise for (default PURCHASE / LEAD). */
+  conversionEvent?: ConversionEvent;
+  /** Cities/regions; when set they replace `countries` (Meta rejects overlapping locations). */
+  locations?: GeoLocation[];
+  /** Custom / lookalike audience ids to include and to exclude. */
+  customAudiences?: string[];
+  excludedAudiences?: string[];
+  /** Let Meta expand beyond the audience (Advantage+ audience). Age max becomes 65. */
+  advantageAudience?: boolean;
+  /** Omit for Advantage+ placements (recommended). */
+  platforms?: Platform[];
+  /** Instagram account to show the ad from (else the Page's). */
+  instagramUserId?: string;
+  /** e.g. "utm_source=facebook&utm_medium=paid_social&utm_campaign={{campaign.name}}". */
+  urlTags?: string;
+  /** ISO timestamps; start defaults to now (Meta), end is optional. */
+  startTime?: string;
+  endTime?: string;
+  /** 'carousel' uses `cards` (2-10) with one image each. */
+  format?: 'single' | 'carousel';
+  cards?: CarouselCard[];
 }
+
+export const isMessages = (i: Pick<CreateAdInput, 'objective'>) => i.objective === 'OUTCOME_ENGAGEMENT';
+export const usesPixel = (i: Pick<CreateAdInput, 'objective'>) => i.objective === 'OUTCOME_SALES' || i.objective === 'OUTCOME_LEADS';
+export const defaultEvent = (i: Pick<CreateAdInput, 'objective'>): ConversionEvent => (i.objective === 'OUTCOME_LEADS' ? 'LEAD' : 'PURCHASE');
 
 export type CreateAdErrorCode =
   | 'ad_account_required'
@@ -141,7 +211,16 @@ export type CreateAdErrorCode =
   | 'headline_required'
   | 'text_too_long'
   | 'cta_invalid'
-  | 'targeting_invalid';
+  | 'targeting_invalid'
+  | 'message_app_required'
+  | 'event_invalid'
+  | 'locations_invalid'
+  | 'audiences_invalid'
+  | 'platforms_invalid'
+  | 'instagram_invalid'
+  | 'url_tags_invalid'
+  | 'schedule_invalid'
+  | 'cards_invalid';
 
 /**
  * Smallest daily budget we accept, in major units of the account currency.
@@ -173,11 +252,30 @@ export function validateCreateAdInput(i: CreateAdInput, currency: string): Creat
   if (!isNonEmpty(i.adAccountId) || !/^act_\d+$/.test(i.adAccountId)) e.push('ad_account_required');
   if (!isNonEmpty(i.pageId) || !/^\d+$/.test(i.pageId)) e.push('page_required');
   if (!(CREATE_OBJECTIVES as readonly string[]).includes(i.objective)) e.push('objective_invalid');
-  if (i.objective === 'OUTCOME_SALES' && (!isNonEmpty(i.pixelId) || !/^\d+$/.test(i.pixelId))) e.push('pixel_required');
+  if (usesPixel(i) && (!isNonEmpty(i.pixelId) || !/^\d+$/.test(i.pixelId))) e.push('pixel_required');
+  if (isMessages(i) && !(MESSAGE_APPS as readonly string[]).includes(i.messageApp ?? '')) e.push('message_app_required');
+  if (i.conversionEvent !== undefined && !(CONVERSION_EVENTS as readonly string[]).includes(i.conversionEvent)) e.push('event_invalid');
   if (!isNonEmpty(i.campaignName)) e.push('name_required');
   if (typeof i.dailyBudget !== 'number' || !Number.isFinite(i.dailyBudget) || i.dailyBudget <= 0) e.push('budget_invalid');
   else if (i.dailyBudget < minDailyBudget(currency)) e.push('budget_too_low');
-  if (!Array.isArray(i.countries) || i.countries.length === 0) e.push('countries_required');
+  const hasLocations = Array.isArray(i.locations) && i.locations.length > 0;
+  if (i.locations !== undefined) {
+    const l = i.locations;
+    if (
+      !Array.isArray(l) ||
+      l.length > MAX_LOCATIONS ||
+      l.some(
+        (g) =>
+          !g ||
+          !/^\d+$/.test(String(g.key)) ||
+          (g.type !== 'city' && g.type !== 'region') ||
+          (g.radiusKm !== undefined && (g.type !== 'city' || !(g.radiusKm === 0 || (g.radiusKm >= 10 && g.radiusKm <= 80)))),
+      )
+    )
+      e.push('locations_invalid');
+  }
+  // Countries are ignored when cities/regions are chosen.
+  if (!hasLocations && (!Array.isArray(i.countries) || i.countries.length === 0)) e.push('countries_required');
   else if (i.countries.some((c) => typeof c !== 'string' || !/^[A-Z]{2}$/.test(c))) e.push('country_invalid');
   if (
     !Number.isInteger(i.ageMin) ||
@@ -188,7 +286,30 @@ export function validateCreateAdInput(i: CreateAdInput, currency: string): Creat
   )
     e.push('age_invalid');
   if (!(GENDERS as readonly string[]).includes(i.gender)) e.push('gender_invalid');
-  if (!isNonEmpty(i.url) || !isValidHttpUrl(i.url)) e.push('url_invalid');
+  // Messaging ads open a chat, so they don't need a website.
+  if (!isMessages(i) && (!isNonEmpty(i.url) || !isValidHttpUrl(i.url))) e.push('url_invalid');
+  const ids = (a: unknown) => Array.isArray(a) && a.length <= MAX_AUDIENCES && a.every((x) => typeof x === 'string' && /^\d+$/.test(x));
+  if ((i.customAudiences !== undefined && !ids(i.customAudiences)) || (i.excludedAudiences !== undefined && !ids(i.excludedAudiences)))
+    e.push('audiences_invalid');
+  if (i.platforms !== undefined && (!Array.isArray(i.platforms) || i.platforms.length === 0 || i.platforms.some((p) => !(PLATFORMS as readonly string[]).includes(p))))
+    e.push('platforms_invalid');
+  if (i.instagramUserId !== undefined && !/^\d+$/.test(i.instagramUserId)) e.push('instagram_invalid');
+  if (i.urlTags !== undefined && (i.urlTags.length > 500 || /\s/.test(i.urlTags) || /^[?&]/.test(i.urlTags))) e.push('url_tags_invalid');
+  if (i.startTime !== undefined || i.endTime !== undefined) {
+    const st = i.startTime ? Date.parse(i.startTime) : Date.now();
+    const en = i.endTime ? Date.parse(i.endTime) : null;
+    if (Number.isNaN(st) || (en !== null && (Number.isNaN(en) || en - st < 24 * 3600 * 1000))) e.push('schedule_invalid');
+  }
+  if (i.format === 'carousel') {
+    const c = i.cards;
+    if (
+      !Array.isArray(c) ||
+      c.length < 2 ||
+      c.length > MAX_CAROUSEL_CARDS ||
+      c.some((k) => !k || !isNonEmpty(k.headline) || k.headline.length > MAX_TEXT.headline || (k.url !== undefined && k.url !== '' && !isValidHttpUrl(k.url)))
+    )
+      e.push('cards_invalid');
+  }
   if (!isNonEmpty(i.primaryText)) e.push('primary_text_required');
   if (!isNonEmpty(i.headline)) e.push('headline_required');
   if (
@@ -236,13 +357,17 @@ export function buildCampaignPayload(i: CreateAdInput): GraphParams {
 
 export function buildTargeting(i: CreateAdInput): Record<string, unknown> {
   const t: Record<string, unknown> = {
-    geo_locations: { countries: [...new Set(i.countries)] },
+    geo_locations: buildGeo(i),
     age_min: i.ageMin,
-    age_max: i.ageMax,
-    // Respect the age/gender the user picked instead of letting Advantage+ audience widen it.
+    // VERIFY: with Advantage+ audience on, Meta only accepts age_max 65 (the range becomes a suggestion).
+    age_max: i.advantageAudience ? 65 : i.ageMax,
     // VERIFY: targeting_automation.advantage_audience must be sent explicitly (0 or 1) on new ad sets.
-    targeting_automation: { advantage_audience: 0 },
+    targeting_automation: { advantage_audience: i.advantageAudience ? 1 : 0 },
   };
+  if (i.customAudiences?.length) t.custom_audiences = i.customAudiences.map((id) => ({ id }));
+  if (i.excludedAudiences?.length) t.excluded_custom_audiences = i.excludedAudiences.map((id) => ({ id }));
+  // Manual placements; omitted = Advantage+ placements.
+  if (i.platforms?.length) t.publisher_platforms = [...new Set(i.platforms)];
   if (i.gender === 'male') t.genders = [1];
   if (i.gender === 'female') t.genders = [2];
   const items = i.detailedTargeting ?? [];
@@ -258,41 +383,94 @@ export function buildTargeting(i: CreateAdInput): Record<string, unknown> {
   return t;
 }
 
+/** Cities (with radius) / regions replace countries; Meta rejects a city inside a chosen country. */
+export function buildGeo(i: CreateAdInput): Record<string, unknown> {
+  const locs = i.locations ?? [];
+  if (!locs.length) return { countries: [...new Set(i.countries)] };
+  const g: Record<string, unknown> = {};
+  const cities = locs.filter((l) => l.type === 'city');
+  const regions = locs.filter((l) => l.type === 'region');
+  // VERIFY: geo_locations.cities [{key, radius, distance_unit}] and regions [{key}].
+  if (cities.length)
+    g.cities = cities.map((c) => (c.radiusKm ? { key: String(c.key), radius: c.radiusKm, distance_unit: 'kilometer' } : { key: String(c.key) }));
+  if (regions.length) g.regions = regions.map((x) => ({ key: String(x.key) }));
+  return g;
+}
+
 export function buildAdSetPayload(i: CreateAdInput, campaignId: string, currency: string): GraphParams {
-  const sales = i.objective === 'OUTCOME_SALES';
+  const pixel = usesPixel(i);
+  const msg = isMessages(i);
   const p: GraphParams = {
     name: `${i.campaignName.trim()} - Ad set`,
     campaign_id: campaignId,
     status: 'PAUSED',
     daily_budget: majorToMinor(i.dailyBudget, currency),
     billing_event: 'IMPRESSIONS',
-    // VERIFY: OFFSITE_CONVERSIONS + promoted_object {pixel_id, custom_event_type: PURCHASE}
-    // is the correct pair for OUTCOME_SALES website ad sets.
-    optimization_goal: sales ? 'OFFSITE_CONVERSIONS' : 'LINK_CLICKS',
+    // VERIFY: OFFSITE_CONVERSIONS + promoted_object {pixel_id, custom_event_type} for website
+    // sales/leads; CONVERSATIONS + destination WHATSAPP/MESSENGER/INSTAGRAM_DIRECT + promoted_object
+    // {page_id} for click-to-message.
+    optimization_goal: pixel ? 'OFFSITE_CONVERSIONS' : msg ? 'CONVERSATIONS' : 'LINK_CLICKS',
     bid_strategy: 'LOWEST_COST_WITHOUT_CAP',
-    destination_type: 'WEBSITE',
+    destination_type: msg ? (i.messageApp as string) : 'WEBSITE',
     targeting: buildTargeting(i),
   };
-  if (sales) p.promoted_object = { pixel_id: i.pixelId, custom_event_type: 'PURCHASE' };
+  if (pixel) p.promoted_object = { pixel_id: i.pixelId, custom_event_type: i.conversionEvent ?? defaultEvent(i) };
+  if (msg) p.promoted_object = { page_id: i.pageId };
+  if (i.startTime) p.start_time = i.startTime;
+  if (i.endTime) p.end_time = i.endTime;
   return p;
 }
 
+/** Call to action and link for click-to-message ads. */
+// VERIFY: CTA types and app_destination values for WhatsApp / Messenger / Instagram Direct,
+// and that the link is a placeholder Meta ignores for these destinations.
+const MESSAGE_CTA: Record<MessageApp, { type: string; link: string }> = {
+  WHATSAPP: { type: 'WHATSAPP_MESSAGE', link: 'https://api.whatsapp.com/send' },
+  MESSENGER: { type: 'MESSAGE_PAGE', link: 'https://fb.com/messenger_doc/' },
+  INSTAGRAM_DIRECT: { type: 'INSTAGRAM_MESSAGE', link: 'https://www.instagram.com/' },
+};
+
 // VERIFY: link ad creative via object_story_spec.link_data (link, message, name,
 // description, image_hash, call_to_action.value.link).
-export function buildCreativePayload(i: CreateAdInput, imageHash?: string): GraphParams {
+export function buildCreativePayload(i: CreateAdInput, imageHashes: string[] | string = []): GraphParams {
+  const hashes = typeof imageHashes === 'string' ? [imageHashes] : imageHashes;
+  const msg = isMessages(i) ? MESSAGE_CTA[i.messageApp as MessageApp] : null;
+  const link = msg ? msg.link : i.url.trim();
+  const cta = msg ? { type: msg.type, value: { app_destination: i.messageApp } } : { type: i.cta, value: { link } };
   const link_data: Record<string, unknown> = {
-    link: i.url.trim(),
+    link,
     message: i.primaryText.trim(),
     name: i.headline.trim(),
-    call_to_action: { type: i.cta, value: { link: i.url.trim() } },
+    call_to_action: cta,
   };
   if (i.description?.trim()) link_data.description = i.description.trim();
-  if (imageHash) link_data.image_hash = imageHash;
-  return {
-    name: `${i.campaignName.trim()} - Creative`,
-    object_story_spec: { page_id: i.pageId, link_data },
-  };
+  if (i.format === 'carousel' && i.cards?.length) {
+    // VERIFY: carousel = link_data.child_attachments (2-10) each with its own image_hash.
+    link_data.child_attachments = i.cards.map((c, n) => {
+      const url = msg ? link : c.url?.trim() || i.url.trim();
+      const card: Record<string, unknown> = {
+        link: url,
+        name: c.headline.trim(),
+        call_to_action: msg ? cta : { type: i.cta, value: { link: url } },
+      };
+      if (c.description?.trim()) card.description = c.description.trim();
+      if (hashes[n]) card.image_hash = hashes[n];
+      return card;
+    });
+    link_data.multi_share_optimized = true;
+  } else if (hashes[0]) {
+    link_data.image_hash = hashes[0];
+  }
+  const story: Record<string, unknown> = { page_id: i.pageId, link_data };
+  // VERIFY: object_story_spec.instagram_user_id (replaces the deprecated instagram_actor_id).
+  if (i.instagramUserId) story.instagram_user_id = i.instagramUserId;
+  const p: GraphParams = { name: `${i.campaignName.trim()} - Creative`, object_story_spec: story };
+  if (i.urlTags && !msg) p.url_tags = i.urlTags;
+  return p;
 }
+
+/** Default UTM tags, using Meta's dynamic URL parameters. */
+export const DEFAULT_URL_TAGS = 'utm_source=facebook&utm_medium=paid_social&utm_campaign={{campaign.name}}&utm_content={{ad.name}}';
 
 export function buildAdPayload(i: CreateAdInput, adSetId: string, creativeId: string): GraphParams {
   return {

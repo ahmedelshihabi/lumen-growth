@@ -33,7 +33,7 @@ import {
 } from '../_shared/meta-create.ts';
 
 interface Body {
-  action?: 'pages' | 'pixels' | 'create' | 'targeting_search' | 'targeting_suggestions';
+  action?: 'pages' | 'pixels' | 'create' | 'targeting_search' | 'targeting_suggestions' | 'audiences' | 'geo_search';
   q?: string;
   locale?: string;
   items?: { id: string; type: string }[];
@@ -41,6 +41,8 @@ interface Body {
   ad_account_id?: string;
   input?: CreateAdInput;
   image?: { base64?: string; filename?: string; content_type?: string };
+  /** Carousel: one image per card, in card order. */
+  images?: { base64?: string; filename?: string; content_type?: string }[];
 }
 
 serve(async (req) => {
@@ -87,8 +89,14 @@ serve(async (req) => {
     // Pages this ad account may advertise with. Business-owned Pages (the usual case for a
     // store) only show up here, not in /me/accounts, which lists Pages the person has a
     // personal role on. Fall back to /me/accounts if the account endpoint returns nothing.
-    type GraphPage = { id: string; name: string; picture?: { data?: { url?: string } } };
-    const params = { fields: 'id,name,picture{url}', limit: '100' };
+    type GraphPage = {
+      id: string;
+      name: string;
+      picture?: { data?: { url?: string } };
+      instagram_business_account?: { id: string; username?: string };
+    };
+    // VERIFY: Page field instagram_business_account{id,username} (needs instagram_basic for username).
+    const params = { fields: 'id,name,picture{url},instagram_business_account{id,username}', limit: '100' };
     let pages: GraphPage[] = [];
     if (body.ad_account_id) {
       const acc = await loadAccount(body.ad_account_id);
@@ -103,7 +111,12 @@ serve(async (req) => {
     return json({
       pages: pages
         .filter((p) => !seen.has(p.id) && seen.add(p.id))
-        .map((p) => ({ id: p.id, name: p.name, picture: p.picture?.data?.url ?? null })),
+        .map((p) => ({
+          id: p.id,
+          name: p.name,
+          picture: p.picture?.data?.url ?? null,
+          instagram: p.instagram_business_account ? { id: p.instagram_business_account.id, username: p.instagram_business_account.username ?? null } : null,
+        })),
     });
   }
 
@@ -155,6 +168,46 @@ serve(async (req) => {
     return json({ options: normalizeTargetingRows((res.data ?? []) as never[]).filter((o) => !pickedKeys.has(`${o.type}:${o.id}`)) });
   }
 
+  if (body.action === 'audiences') {
+    // Custom and lookalike audiences of the ad account (include / exclude in the form).
+    const acc = await loadAccount(body.ad_account_id);
+    // VERIFY: /{act}/customaudiences fields subtype and approximate_count_lower_bound/upper_bound.
+    const rows = await graphGetAll<{ id: string; name: string; subtype?: string; approximate_count_lower_bound?: number; approximate_count_upper_bound?: number }>(
+      `${acc.meta_account_id}/customaudiences`,
+      { fields: 'id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound', limit: '200' },
+      token,
+      5,
+    );
+    return json({
+      audiences: rows.map((a) => ({
+        id: a.id,
+        name: a.name,
+        subtype: a.subtype ?? null,
+        sizeLower: a.approximate_count_lower_bound ?? null,
+        sizeUpper: a.approximate_count_upper_bound ?? null,
+      })),
+    });
+  }
+
+  if (body.action === 'geo_search') {
+    // Cities and regions (e.g. Cairo, Giza, Alexandria) for location targeting.
+    await loadAccount(body.ad_account_id);
+    const q = (body.q ?? '').trim().slice(0, 100);
+    if (q.length < 2) return json({ locations: [] });
+    // VERIFY: GET /search?type=adgeolocation&location_types=["city","region"] returns key, name, type,
+    // region and country_code.
+    const res = await graphGet<{ data?: { key: string; name: string; type: string; region?: string; country_code?: string; country_name?: string }[] }>(
+      'search',
+      { type: 'adgeolocation', q, location_types: JSON.stringify(['city', 'region']), limit: '20', locale: body.locale === 'ar' ? 'ar_AR' : 'en_US' },
+      token,
+    );
+    return json({
+      locations: (res.data ?? [])
+        .filter((l) => l.type === 'city' || l.type === 'region')
+        .map((l) => ({ key: String(l.key), name: l.name, type: l.type, region: l.region ?? null, country: l.country_code ?? null })),
+    });
+  }
+
   if (body.action !== 'create') throw new HttpError(400, 'unknown_action');
   const input = body.input;
   if (!input) throw new HttpError(400, 'missing_input');
@@ -164,20 +217,24 @@ serve(async (req) => {
 
   const act = acc.meta_account_id;
 
-  // 1) Optional image upload -> hash
-  let imageHash: string | undefined;
-  if (body.image?.base64) {
-    const b64 = body.image.base64.replace(/^data:[^,]+,/, '');
-    if (!IMAGE_TYPES.includes(body.image.content_type ?? '')) throw new HttpError(400, 'image_type_invalid');
+  // 1) Image uploads -> hashes (one for a single ad, one per card for a carousel)
+  const uploads = input.format === 'carousel' ? body.images ?? [] : body.image?.base64 ? [body.image] : [];
+  if (input.format === 'carousel' && uploads.length !== (input.cards?.length ?? 0)) throw new HttpError(400, 'cards_images_mismatch');
+  const imageHashes: string[] = [];
+  for (const img of uploads) {
+    if (!img?.base64) throw new HttpError(400, 'image_required');
+    const b64 = img.base64.replace(/^data:[^,]+,/, '');
+    if (!IMAGE_TYPES.includes(img.content_type ?? '')) throw new HttpError(400, 'image_type_invalid');
     if (base64Bytes(b64) > MAX_IMAGE_BYTES) throw new HttpError(413, 'image_too_large');
     // VERIFY: POST /{act}/adimages with `bytes` (base64) returns { images: { <name>: { hash, url } } }.
     const up = await graphPost<{ images?: Record<string, { hash?: string }> }>(
       `${act}/adimages`,
-      { bytes: b64, name: (body.image.filename ?? 'lumen-ad').slice(0, 100) },
+      { bytes: b64, name: (img.filename ?? 'lumen-ad').slice(0, 100) },
       token,
     );
-    imageHash = Object.values(up.images ?? {})[0]?.hash;
-    if (!imageHash) throw new HttpError(502, 'meta_api_error', 'Meta API: image upload returned no hash');
+    const hash = Object.values(up.images ?? {})[0]?.hash;
+    if (!hash) throw new HttpError(502, 'meta_api_error', 'Meta API: image upload returned no hash');
+    imageHashes.push(hash);
   }
 
   // 2) campaign -> ad set -> creative -> ad. Roll back what was created if a later step fails.
@@ -187,7 +244,7 @@ serve(async (req) => {
     created.campaign = campaign.id;
     const adset = await graphPost<{ id: string }>(`${act}/adsets`, toFormFields(buildAdSetPayload(input, campaign.id, acc.currency)), token);
     created.adset = adset.id;
-    const creative = await graphPost<{ id: string }>(`${act}/adcreatives`, toFormFields(buildCreativePayload(input, imageHash)), token);
+    const creative = await graphPost<{ id: string }>(`${act}/adcreatives`, toFormFields(buildCreativePayload(input, imageHashes)), token);
     created.creative = creative.id;
     const ad = await graphPost<{ id: string }>(`${act}/ads`, toFormFields(buildAdPayload(input, adset.id, creative.id)), token);
 

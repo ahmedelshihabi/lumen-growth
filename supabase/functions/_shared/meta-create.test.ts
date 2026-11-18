@@ -7,6 +7,8 @@ import {
   buildCampaignPayload,
   buildCreativePayload,
   buildTargeting,
+  buildGeo,
+  DEFAULT_URL_TAGS,
   normalizeTargetingRows,
   rankTargetingOptions,
   toFormFields,
@@ -187,5 +189,78 @@ describe('rankTargetingOptions', () => {
   it('keeps precise interest matches first, then behaviours, then demographics', () => {
     const ranked = rankTargetingOptions([o('1', 'interests'), o('2', 'interests'), o('3', 'life_events'), o('4', 'behaviors'), o('5', 'interests')], 2);
     expect(ranked.map((x) => x.id)).toEqual(['1', '2', '5', '4', '3']);
+  });
+});
+
+describe('create ad: objectives, locations, audiences, placements, schedule, carousel', () => {
+  it('messages: CONVERSATIONS to WhatsApp, page as promoted object, chat CTA, no website needed', () => {
+    const i: CreateAdInput = { ...base, objective: 'OUTCOME_ENGAGEMENT', messageApp: 'WHATSAPP', url: '' };
+    expect(validateCreateAdInput(i, 'EGP')).toEqual([]);
+    const set = buildAdSetPayload(i, 'c1', 'EGP');
+    expect([set.optimization_goal, set.destination_type, set.promoted_object]).toEqual(['CONVERSATIONS', 'WHATSAPP', { page_id: base.pageId }]);
+    const cr = buildCreativePayload(i, ['h1']) as { object_story_spec: { link_data: Record<string, unknown> } };
+    expect(cr.object_story_spec.link_data.call_to_action).toEqual({ type: 'WHATSAPP_MESSAGE', value: { app_destination: 'WHATSAPP' } });
+    expect(validateCreateAdInput({ ...i, messageApp: undefined }, 'EGP')).toContain('message_app_required');
+  });
+
+  it('leads and sales optimise for the chosen pixel event (default LEAD / PURCHASE)', () => {
+    const leads = buildAdSetPayload({ ...base, objective: 'OUTCOME_LEADS', pixelId: '99' }, 'c', 'EGP');
+    expect(leads.promoted_object).toEqual({ pixel_id: '99', custom_event_type: 'LEAD' });
+    const atc = buildAdSetPayload({ ...base, objective: 'OUTCOME_SALES', pixelId: '99', conversionEvent: 'ADD_TO_CART' }, 'c', 'EGP');
+    expect(atc.promoted_object).toEqual({ pixel_id: '99', custom_event_type: 'ADD_TO_CART' });
+    expect(validateCreateAdInput({ ...base, objective: 'OUTCOME_LEADS' }, 'EGP')).toContain('pixel_required');
+  });
+
+  it('cities with radius and regions replace countries', () => {
+    const i: CreateAdInput = {
+      ...base,
+      locations: [
+        { key: '1522000', name: 'Cairo', type: 'city', radiusKm: 25 },
+        { key: '1522002', name: 'Alexandria', type: 'city', radiusKm: 0 },
+        { key: '3400', name: 'Giza Governorate', type: 'region' },
+      ],
+    };
+    expect(buildGeo(i)).toEqual({
+      cities: [{ key: '1522000', radius: 25, distance_unit: 'kilometer' }, { key: '1522002' }],
+      regions: [{ key: '3400' }],
+    });
+    expect(validateCreateAdInput({ ...i, countries: [] }, 'EGP')).not.toContain('countries_required');
+    expect(validateCreateAdInput({ ...i, locations: [{ key: '1', name: 'x', type: 'city', radiusKm: 5 }] }, 'EGP')).toContain('locations_invalid');
+  });
+
+  it('audiences, Advantage+ audience (age max 65) and manual placements go into targeting', () => {
+    const t = buildTargeting({ ...base, ageMax: 40, customAudiences: ['11'], excludedAudiences: ['22'], advantageAudience: true, platforms: ['instagram', 'facebook', 'instagram'] });
+    expect(t.custom_audiences).toEqual([{ id: '11' }]);
+    expect(t.excluded_custom_audiences).toEqual([{ id: '22' }]);
+    expect([t.age_max, t.targeting_automation]).toEqual([65, { advantage_audience: 1 }]);
+    expect(t.publisher_platforms).toEqual(['instagram', 'facebook']);
+    expect(buildTargeting(base).publisher_platforms).toBeUndefined(); // Advantage+ placements
+    expect(validateCreateAdInput({ ...base, platforms: [] }, 'EGP')).toContain('platforms_invalid');
+  });
+
+  it('schedule needs >= 24h between start and end and is passed to the ad set', () => {
+    const start = '2026-12-01T08:00:00.000Z';
+    expect(buildAdSetPayload({ ...base, startTime: start, endTime: '2026-12-05T08:00:00.000Z' }, 'c', 'EGP').end_time).toBe('2026-12-05T08:00:00.000Z');
+    expect(validateCreateAdInput({ ...base, startTime: start, endTime: '2026-12-01T20:00:00.000Z' }, 'EGP')).toContain('schedule_invalid');
+  });
+
+  it('carousel: one child attachment per card with its own image, UTM tags and Instagram account', () => {
+    const i: CreateAdInput = {
+      ...base,
+      format: 'carousel',
+      cards: [{ headline: 'A' }, { headline: 'B', description: 'b', url: 'https://shop.example/b' }],
+      urlTags: DEFAULT_URL_TAGS,
+      instagramUserId: '178414',
+    };
+    expect(validateCreateAdInput(i, 'EGP')).toEqual([]);
+    const cr = buildCreativePayload(i, ['ha', 'hb']) as { url_tags: string; object_story_spec: { instagram_user_id: string; link_data: { child_attachments: Record<string, unknown>[] } } };
+    expect(cr.object_story_spec.link_data.child_attachments.map((c) => [c.name, c.image_hash, c.link])).toEqual([
+      ['A', 'ha', base.url],
+      ['B', 'hb', 'https://shop.example/b'],
+    ]);
+    expect(cr.url_tags).toBe(DEFAULT_URL_TAGS);
+    expect(cr.object_story_spec.instagram_user_id).toBe('178414');
+    expect(validateCreateAdInput({ ...i, cards: [{ headline: 'only one' }] }, 'EGP')).toContain('cards_invalid');
+    expect(validateCreateAdInput({ ...i, urlTags: '?utm_source=x' }, 'EGP')).toContain('url_tags_invalid');
   });
 });
