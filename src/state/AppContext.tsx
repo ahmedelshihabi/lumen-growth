@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Dataset } from '../data/types';
-import { loadDataset, type DataSource } from '../data/source';
+import { loadDataset, type DataSource, type Dismissals } from '../data/source';
+import { isHidden, snoozeUntil, type SnoozeFor } from '../rules/keys';
 import { setDisplayCurrency } from '../lib/format';
 import { deriveTargets } from '../rules/targets';
 import { DEFAULT_WORKSPACE_SETTINGS, anomalyConfigFrom, evalConfigFrom, type WorkspaceSettings } from '../data/settings';
@@ -46,6 +47,11 @@ interface AppState {
   /** Workspace settings (currency, timezone, attribution, alert rules); shared by the team. */
   settings: WorkspaceSettings;
   saveSettings: (s: WorkspaceSettings) => Promise<void>;
+  /** Snoozed / dismissed alerts and recommendations (shared by the team). */
+  dismissals: Dismissals;
+  hide: (key: string, f: SnoozeFor) => void;
+  restore: (key: string) => void;
+  isHidden: (key: string) => boolean;
   theme: Theme;
   toggleTheme: () => void;
   /** Convenience bundle for the rules engines (null while loading). */
@@ -70,17 +76,19 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
   });
   const [savedTargets, setSavedTargets] = useState<TargetsByAccount>({});
   const [settings, setSettings] = useState<WorkspaceSettings>(DEFAULT_WORKSPACE_SETTINGS);
+  const [dismissals, setDismissals] = useState<Dismissals>({});
   const [theme, setTheme] = useState<Theme>(initialTheme);
 
   useEffect(() => {
     let alive = true;
     setError(null);
-    Promise.all([loadDataset(source), source.getTargets(), source.getSettings()])
-      .then(([d, saved, ws]) => {
+    Promise.all([loadDataset(source), source.getTargets(), source.getSettings(), source.getDismissals().catch(() => ({}))])
+      .then(([d, saved, ws, dm]) => {
         if (!alive) return;
         const currency = ws.currency ?? d.accounts[0]?.currency;
         if (currency) setDisplayCurrency(currency);
         setSettings(ws);
+        setDismissals(dm);
         setSavedTargets(saved);
         setData(d);
       })
@@ -137,6 +145,27 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
     [source, data],
   );
 
+  const hide = useCallback(
+    (key: string, f: SnoozeFor) => {
+      const until = snoozeUntil(f);
+      setDismissals((d) => ({ ...d, [key]: until }));
+      source.dismiss(key, until).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    },
+    [source],
+  );
+  const restore = useCallback(
+    (key: string) => {
+      setDismissals((d) => {
+        const n = { ...d };
+        delete n[key];
+        return n;
+      });
+      source.restore(key).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    },
+    [source],
+  );
+  const isHiddenFn = useCallback((key: string) => isHidden(dismissals, key), [dismissals]);
+
   const toggleTheme = useCallback(() => {
     setTheme((t) => {
       const next = t === 'dark' ? 'light' : 'dark';
@@ -164,8 +193,8 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
   );
 
   const value = useMemo<AppState>(
-    () => ({ source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, settings, saveSettings, theme, toggleTheme, rulesInput }),
-    [source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, settings, saveSettings, theme, toggleTheme, rulesInput],
+    () => ({ source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, settings, saveSettings, dismissals, hide, restore, isHidden: isHiddenFn, theme, toggleTheme, rulesInput }),
+    [source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, settings, saveSettings, dismissals, hide, restore, isHiddenFn, theme, toggleTheme, rulesInput],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

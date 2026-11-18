@@ -19,6 +19,7 @@ import Settings from './pages/Settings';
 import Billing from './pages/Billing';
 import Connect from './pages/Connect';
 import CreateAd from './pages/CreateAd';
+import { alertKey, isHidden, recKey } from './rules/keys';
 
 /** Pages that render the loaded dataset (need data, show "connect Meta" when empty). */
 const DATA_PAGES: Partial<Record<AppRoute, () => JSX.Element>> = {
@@ -39,7 +40,7 @@ const ACCOUNT_PAGES: Partial<Record<AppRoute, () => JSX.Element>> = {
 };
 
 export default function AppShell({ route }: { route: AppRoute }) {
-  const { data, error, rulesInput } = useApp();
+  const { data, error, rulesInput, dismissals } = useApp();
   const { entitlements } = useSession();
   const { t } = useI18n();
   const access = routeAccess(route, entitlements);
@@ -47,10 +48,13 @@ export default function AppShell({ route }: { route: AppRoute }) {
   const badges = useMemo(() => {
     if (!rulesInput || !entitlements.active) return {};
     return {
-      alerts: entitlements.features.has('alerts') ? detectAnomalies(rulesInput).length : 0,
-      recommendations: entitlements.features.has('recommendations') ? generateRecommendations(rulesInput).length : 0,
+      // Counters exclude snoozed / dismissed items.
+      alerts: entitlements.features.has('alerts') ? detectAnomalies(rulesInput).filter((a) => !isHidden(dismissals, alertKey(a))).length : 0,
+      recommendations: entitlements.features.has('recommendations')
+        ? generateRecommendations(rulesInput).filter((r) => !isHidden(dismissals, recKey(r))).length
+        : 0,
     };
-  }, [rulesInput, entitlements]);
+  }, [rulesInput, entitlements, dismissals]);
 
   let body: JSX.Element;
   const AccountPage = ACCOUNT_PAGES[route];

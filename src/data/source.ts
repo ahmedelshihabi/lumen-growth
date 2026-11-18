@@ -36,11 +36,18 @@ export interface DataSource {
   /** Workspace settings (currency, timezone, attribution, alert rules). */
   getSettings(): Promise<WorkspaceSettings>;
   saveSettings(settings: WorkspaceSettings): Promise<void>;
+  /** Hidden alerts/recommendations: item key -> snoozed until (ISO) or null = dismissed. */
+  getDismissals(): Promise<Dismissals>;
+  dismiss(key: string, until: string | null): Promise<void>;
+  restore(key: string): Promise<void>;
 }
+
+export type Dismissals = Record<string, string | null>;
 
 const BUDGETS_KEY = 'lumen.demoBudgets.v1';
 const TARGETS_KEY = 'lumen.targets.v1';
 const SETTINGS_KEY = 'lumen.demoSettings.v1';
+const DISMISS_KEY = 'lumen.demoDismissals.v1';
 
 function readBudgetOverrides(): Record<string, number | null> {
   try {
@@ -92,6 +99,30 @@ export class MockDataSource implements DataSource {
       return { ...DEFAULT_TARGETS, ...(JSON.parse(localStorage.getItem(TARGETS_KEY) ?? '{}') as TargetsByAccount) };
     } catch {
       return { ...DEFAULT_TARGETS };
+    }
+  }
+  async getDismissals(): Promise<Dismissals> {
+    try {
+      return JSON.parse(localStorage.getItem(DISMISS_KEY) ?? '{}') as Dismissals;
+    } catch {
+      return {};
+    }
+  }
+  async dismiss(key: string, until: string | null) {
+    const d = { ...(await this.getDismissals()), [key]: until };
+    try {
+      localStorage.setItem(DISMISS_KEY, JSON.stringify(d));
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  async restore(key: string) {
+    const d = await this.getDismissals();
+    delete d[key];
+    try {
+      localStorage.setItem(DISMISS_KEY, JSON.stringify(d));
+    } catch {
+      /* storage unavailable */
     }
   }
   async getSettings(): Promise<WorkspaceSettings> {

@@ -6,6 +6,8 @@ import { generateRecommendations, type Priority } from '../rules/recommendations
 import { fmtMoney } from '../lib/format';
 import { formatShortDate } from '../lib/dates';
 import type { Confidence } from '../rules/evaluate';
+import { recKey } from '../rules/keys';
+import { HiddenList, ItemActions } from '../components/ItemActions';
 import { useI18n } from '../i18n';
 
 const PRIORITY_STYLE: Record<Priority, string> = {
@@ -27,9 +29,11 @@ const IMPACT_STYLE = {
 };
 
 export default function Recommendations() {
-  const { rulesInput } = useLoadedApp();
+  const { rulesInput, isHidden } = useLoadedApp();
   const { t } = useI18n();
-  const recs = useMemo(() => generateRecommendations(rulesInput), [rulesInput]);
+  const generated = useMemo(() => generateRecommendations(rulesInput), [rulesInput]);
+  const recs = generated.filter((r) => !isHidden(recKey(r)));
+  const hidden = generated.filter((r) => isHidden(recKey(r)));
   const [done, setDone] = useState<Set<string>>(new Set());
 
   const open = recs.filter((r) => !done.has(r.id));
@@ -89,6 +93,7 @@ export default function Recommendations() {
                     <span className={cx('rounded px-1.5 py-0.5 font-medium', CONFIDENCE_STYLE[r.confidence])}>{t(`recs.confidence.${r.confidence}`)}</span>
                     <span>{t('recs.basis', { days: r.window.activeDays, start: formatShortDate(r.window.start), end: formatShortDate(r.window.end) })}</span>
                   </div>
+                  <ItemActions itemKey={recKey(r)} why={t(`why.${r.type}`)} />
                 </div>
                 <div className="flex items-center justify-between gap-4 sm:w-48 sm:flex-col sm:items-end sm:justify-start">
                   <div className="sm:text-end">
@@ -116,6 +121,7 @@ export default function Recommendations() {
           );
         })}
       </div>
+      <HiddenList items={hidden.map((r) => ({ key: recKey(r), title: t(r.titleMsg.key, r.titleMsg.vars) }))} />
     </>
   );
 }

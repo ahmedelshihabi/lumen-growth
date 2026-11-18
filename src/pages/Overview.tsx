@@ -13,6 +13,7 @@ import { Link } from '../lib/router';
 import { useI18n } from '../i18n';
 import type { DictKey } from '../i18n/dict';
 import { getDisplayCurrency } from '../lib/format';
+import { alertKey } from '../rules/keys';
 
 interface Kpi {
   key: keyof Totals;
@@ -33,7 +34,7 @@ const KPIS: Kpi[] = [
 const CHANNELS: Channel[] = ['meta', 'google', 'tiktok'];
 
 export default function Overview() {
-  const { data, rangeDays, theme, rulesInput, autoTargetIds } = useLoadedApp();
+  const { data, rangeDays, theme, rulesInput, autoTargetIds, isHidden } = useLoadedApp();
   const { t } = useI18n();
   const colors = chartColors(theme);
 
@@ -58,7 +59,7 @@ export default function Overview() {
     return { range, current, previous, daily, channels };
   }, [data, rangeDays]);
 
-  const alerts = useMemo(() => detectAnomalies(rulesInput).slice(0, 4), [rulesInput]);
+  const alerts = useMemo(() => detectAnomalies(rulesInput).filter((a) => !isHidden(alertKey(a))).slice(0, 4), [rulesInput, isHidden]);
   const totalSpend = model.current.spend;
 
   return (

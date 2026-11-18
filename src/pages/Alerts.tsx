@@ -3,20 +3,32 @@ import { Card, ChannelBadge, EmptyState, PageHeader, Select, SeverityBadge, Stat
 import { useLoadedApp } from '../state/AppContext';
 import { detectAnomalies, DEFAULT_ANOMALY_CONFIG, type AnomalyType, type Severity } from '../rules/anomalies';
 import { formatShortDate } from '../lib/dates';
+import { alertKey } from '../rules/keys';
+import { HiddenList, ItemActions } from '../components/ItemActions';
 import { useI18n } from '../i18n';
 
 const TYPES: AnomalyType[] = ['account_stopped', 'cpa_spike', 'roas_drop', 'spend_stopped', 'high_frequency'];
 
 export default function Alerts() {
-  const { rulesInput } = useLoadedApp();
+  const { rulesInput, isHidden } = useLoadedApp();
   const { t } = useI18n();
   const [severity, setSeverity] = useState<'all' | Severity>('all');
   const [type, setType] = useState<'all' | AnomalyType>('all');
 
-  const all = useMemo(() => detectAnomalies(rulesInput), [rulesInput]);
+  const detected = useMemo(() => detectAnomalies(rulesInput), [rulesInput]);
+  const all = detected.filter((a) => !isHidden(alertKey(a)));
+  const hidden = detected.filter((a) => isHidden(alertKey(a)));
   const shown = all.filter((a) => (severity === 'all' || a.severity === severity) && (type === 'all' || a.type === type));
   const count = (s: Severity) => all.filter((a) => a.severity === s).length;
-  const cfg = DEFAULT_ANOMALY_CONFIG;
+  // The workspace's own thresholds (Settings), not the defaults.
+  const cfg = rulesInput.anomalyConfig ?? DEFAULT_ANOMALY_CONFIG;
+  const ruleText: Record<AnomalyType, string> = {
+    cpa_spike: t('alerts.rule.cpa', { pct: Math.round(cfg.cpaSpikePct * 100), min: cfg.minConversions, recent: cfg.cpaRecentDays, base: cfg.cpaBaselineDays }),
+    roas_drop: t('alerts.rule.roas', { recent: cfg.roasRecentDays, pct: Math.round(cfg.roasDropPct * 100), base: cfg.roasBaselineDays }),
+    spend_stopped: t('alerts.rule.stopped'),
+    account_stopped: t('alerts.rule.account'),
+    high_frequency: t('alerts.rule.freq', { pro: cfg.freqCapProspecting, rtg: cfg.freqCapRetargeting }),
+  };
 
   return (
     <>
@@ -73,6 +85,7 @@ export default function Alerts() {
                     <ChannelBadge channel={a.channel} />
                     <span className="truncate"><bdi>{a.campaignName}</bdi></span>
                   </div>
+                  <ItemActions itemKey={alertKey(a)} why={<>{t('why.alertPrefix')} {ruleText[a.type]}</>} />
                 </div>
                 <time className="shrink-0 text-xs tabular-nums text-zinc-500 dark:text-zinc-400" dateTime={a.date}>
                   {formatShortDate(a.date)}
@@ -82,6 +95,16 @@ export default function Alerts() {
           </ul>
         )}
       </Card>
+      <HiddenList
+        items={hidden.map((a) => ({
+          key: alertKey(a),
+          title: (
+            <>
+              {t(a.titleMsg.key, a.titleMsg.vars)} · <bdi>{a.campaignName}</bdi>
+            </>
+          ),
+        }))}
+      />
 
       <Card className="mt-4" title={t('alerts.activeRules')}>
         <ul className="grid gap-px overflow-hidden rounded-b-xl bg-zinc-100 text-sm dark:bg-zinc-800 sm:grid-cols-2">

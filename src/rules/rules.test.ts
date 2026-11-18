@@ -351,3 +351,18 @@ describe('QA pass: one evaluation, one ladder (items 10-17)', () => {
     expect(detectFatigue(rows, AS_OF).status).toBe('healthy'); // without a goal it can't be judged poor
   });
 });
+
+describe('hiding alerts and recommendations', () => {
+  it('uses stable keys and respects snooze expiry', async () => {
+    const { alertKey, isHidden, snoozeUntil } = await import('./keys');
+    const a = { type: 'cpa_spike' as const, campaignId: 'c1', campaignName: 'X' };
+    expect(alertKey(a)).toBe('alert:cpa_spike:c1'); // no date: tomorrow's alert stays hidden
+    const now = Date.parse('2026-11-19T10:00:00Z');
+    const d = { k24: snoozeUntil('24h', now), k7: snoozeUntil('7d', now), kf: snoozeUntil('forever', now) };
+    expect(isHidden(d, 'k24', now + 23 * 3600e3)).toBe(true);
+    expect(isHidden(d, 'k24', now + 25 * 3600e3)).toBe(false);
+    expect(isHidden(d, 'k7', now + 6 * 86400e3)).toBe(true);
+    expect(isHidden(d, 'kf', now + 365 * 86400e3)).toBe(true);
+    expect(isHidden(d, 'other', now)).toBe(false);
+  });
+});

@@ -6,7 +6,7 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AdAccount, Campaign, CampaignDailyMetric, CampaignStatus, Creative, CreativeDailyMetric, CreativeFormat, DateRange, ISODate } from './types';
-import type { DataSource } from './source';
+import type { DataSource, Dismissals } from './source';
 import type { TargetsByAccount } from '../rules/types';
 import { DEFAULT_WORKSPACE_SETTINGS, normalizeSettings, type WorkspaceSettings } from './settings';
 import { addDays, localToday } from '../lib/dates';
@@ -183,6 +183,24 @@ export class SupabaseDataSource implements DataSource {
       const { error } = await this.db.from('campaign_budgets').delete().eq('workspace_id', this.workspaceId).in('campaign_id', deletes);
       if (error) throw error;
     }
+  }
+
+  async getDismissals(): Promise<Dismissals> {
+    const { data, error } = await this.db.from('dismissals').select('item_key, snoozed_until').eq('workspace_id', this.workspaceId);
+    if (error) throw error;
+    return Object.fromEntries((data ?? []).map((r) => [r.item_key as string, (r.snoozed_until as string | null) ?? null]));
+  }
+
+  async dismiss(key: string, until: string | null): Promise<void> {
+    const { error } = await this.db
+      .from('dismissals')
+      .upsert({ workspace_id: this.workspaceId, item_key: key, snoozed_until: until, created_at: new Date().toISOString() }, { onConflict: 'workspace_id,item_key' });
+    if (error) throw error;
+  }
+
+  async restore(key: string): Promise<void> {
+    const { error } = await this.db.from('dismissals').delete().eq('workspace_id', this.workspaceId).eq('item_key', key);
+    if (error) throw error;
   }
 
   async getSettings(): Promise<WorkspaceSettings> {

@@ -66,7 +66,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       let s = dict[key] ?? DICTS.en[key] ?? key;
       // In Arabic, wrap each value in a first-strong isolate (FSI…PDI) so "$1,234", "1.2%"
       // or "act_123" keep their own direction inside the right-to-left sentence.
-      const wrap = (v: string | number) => (lang === 'ar' ? `⁨${v}⁩` : String(v));
+      // Values with no Arabic letters ("1.33x", "EGP 1,250", "Search | Brand") get a left-to-right
+      // isolate (LRI); anything containing Arabic gets a first-strong isolate (FSI).
+      const wrap = (v: string | number) => {
+        if (lang !== 'ar') return String(v);
+        const str = String(v);
+        return /[\u0600-\u06FF]/.test(str) ? `\u2068${str}\u2069` : `\u2066${str}\u2069`;
+      };
       if (vars) for (const [k, v] of Object.entries(vars)) s = s.split(`{${k}}`).join(wrap(v));
       return s;
     };
