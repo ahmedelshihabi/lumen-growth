@@ -11,6 +11,10 @@ export interface Totals {
   cpa: number;
   ctr: number;
   cpm: number;
+  /** Conversations started from click-to-message ads (0 when not reported). */
+  conversations: number;
+  /** spend / conversations */
+  costPerConversation: number;
 }
 
 export const safeDiv = (a: number, b: number): number => (b > 0 ? a / b : 0);
@@ -21,6 +25,7 @@ export interface Summable {
   impressions: number;
   clicks: number;
   conversions: number;
+  conversations?: number;
 }
 
 export function aggregate(rows: readonly Summable[]): Totals {
@@ -29,12 +34,14 @@ export function aggregate(rows: readonly Summable[]): Totals {
   let impressions = 0;
   let clicks = 0;
   let conversions = 0;
+  let conversations = 0;
   for (const r of rows) {
     spend += r.spend;
     revenue += r.revenue;
     impressions += r.impressions;
     clicks += r.clicks;
     conversions += r.conversions;
+    conversations += r.conversations ?? 0;
   }
   return {
     spend,
@@ -46,6 +53,8 @@ export function aggregate(rows: readonly Summable[]): Totals {
     cpa: safeDiv(spend, conversions),
     ctr: safeDiv(clicks, impressions),
     cpm: safeDiv(spend, impressions) * 1000,
+    conversations,
+    costPerConversation: safeDiv(spend, conversations),
   };
 }
 

@@ -5,7 +5,7 @@ import { fmtMoney, fmtMoney2 } from '../lib/format';
 import { msg, renderEn, type Msg } from './msg';
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low';
-export type AnomalyType = 'cpa_spike' | 'roas_drop' | 'spend_stopped' | 'high_frequency';
+export type AnomalyType = 'cpa_spike' | 'roas_drop' | 'spend_stopped' | 'high_frequency' | 'account_stopped';
 
 export interface Anomaly {
   id: string;
@@ -55,6 +55,8 @@ export interface AnomalyInput {
   campaigns: readonly Campaign[];
   campaignDaily: readonly CampaignDailyMetric[];
   asOf: ISODate;
+  /** Account display names for account-level alerts (falls back to the account id). */
+  accountNames?: Record<string, string>;
 }
 
 const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 2, low: 3 };
@@ -213,6 +215,51 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
         baseline: config.frequencyMax,
       });
     }
+  }
+
+  // 5. Whole account stopped spending. The per-campaign rule skips paused campaigns, so an
+  // account where someone paused everything would otherwise produce no alert at all.
+  const campaignsByAccount = new Map<string, Campaign[]>();
+  for (const c of campaigns) {
+    const list = campaignsByAccount.get(c.accountId) ?? [];
+    list.push(c);
+    campaignsByAccount.set(c.accountId, list);
+  }
+  for (const [accountId, list] of campaignsByAccount) {
+    const ids = new Set(list.map((c) => c.id));
+    const spendByDate = new Map<string, number>();
+    for (const r of campaignDaily) if (ids.has(r.campaignId)) spendByDate.set(r.date, (spendByDate.get(r.date) ?? 0) + r.spend);
+    const spendOn = (d: ISODate) => spendByDate.get(d) ?? 0;
+    if (spendOn(asOf) >= 1) continue;
+    let streak = 0;
+    while (streak < 30 && spendOn(addDays(asOf, -streak)) < 1) streak++;
+    if (streak >= 30) continue;
+    const lastSpendDay = addDays(asOf, -streak);
+    let before = 0;
+    for (let i = 0; i < 7; i++) before += spendOn(addDays(lastSpendDay, -i));
+    const avgBefore = before / 7;
+    if (avgBefore < config.minSpend) continue;
+    const name = input.accountNames?.[accountId] ?? accountId;
+    out.push({
+      id: `account_stopped:${accountId}:${asOf}`,
+      type: 'account_stopped',
+      severity: 'critical',
+      campaignId: '',
+      campaignName: name,
+      channel: list[0].channel,
+      date: asOf,
+      ...texts(
+        streak === 1 ? msg('anomalyMsg.account.titleOne', { name }) : msg('anomalyMsg.account.title', { name, n: streak }),
+        msg('anomalyMsg.account.detail', {
+          since: addDays(lastSpendDay, 1),
+          avg: fmtMoney(avgBefore),
+          paused: list.filter((c) => c.status === 'PAUSED').length,
+          total: list.length,
+        }),
+      ),
+      current: 0,
+      baseline: avgBefore,
+    });
   }
 
   return out.sort(

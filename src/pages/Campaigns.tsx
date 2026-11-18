@@ -5,7 +5,7 @@ import { useLoadedApp } from '../state/AppContext';
 import { rangeEnding } from '../lib/metrics';
 import { fmtMoney, fmtMoney2, fmtPct, fmtRoas } from '../lib/format';
 import { summarizeCampaigns, type CampaignSummary } from '../rules/summary';
-import { metricHealth, type Health } from '../rules/health';
+import { lacksValueTracking, metricHealth, type Health } from '../rules/health';
 import type { CampaignStatus, Channel } from '../data/types';
 import { useI18n } from '../i18n';
 import type { DictKey } from '../i18n/dict';
@@ -55,6 +55,7 @@ const COLUMNS: { key: SortKey; label: DictKey; align?: 'right'; className?: stri
 export default function Campaigns() {
   const { data, rangeDays, targets } = useLoadedApp();
   const { t } = useI18n();
+  const tr = t;
   const [query, setQuery] = useState('');
   const [channel, setChannel] = useState<'all' | Channel>('all');
   const [status, setStatus] = useState<'all' | CampaignStatus>('all');
@@ -172,6 +173,7 @@ export default function Campaigns() {
               {rows.map((s) => {
                 const t = s.totals;
                 const active = t.spend > 0;
+                const noValue = lacksValueTracking(t);
                 return (
                   <tr key={s.campaign.id} className="border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40">
                     <td className="max-w-[280px] py-2.5 ps-4 pe-3">
@@ -181,6 +183,11 @@ export default function Campaigns() {
                       <div className="mt-0.5 flex items-center gap-2">
                         <ChannelBadge channel={s.campaign.channel} />
                         <span className="text-[11px] text-zinc-400">{s.campaign.objective.toLowerCase()}</span>
+                        {t.conversations > 0 && (
+                          <span className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400" dir="auto">
+                            {tr('campaigns.perConversation', { cost: fmtMoney2(t.costPerConversation) })}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-3 py-2.5">
@@ -189,8 +196,11 @@ export default function Campaigns() {
                     <td className="px-3 py-2.5 text-end tabular-nums">{fmtMoney(s.campaign.dailyBudget)}</td>
                     <td className="px-3 py-2.5 text-end tabular-nums">{fmtMoney(t.spend)}</td>
                     <td className="px-3 py-2.5 text-end tabular-nums">{fmtMoney(t.revenue)}</td>
-                    <td className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && healthText(metricHealth(t.roas, s.target.targetRoas, true)))}>
-                      {active ? fmtRoas(t.roas) : '-'}
+                    <td
+                      className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && !noValue && healthText(metricHealth(t.roas, s.target.targetRoas, true)))}
+                      title={noValue ? tr('campaigns.noValue') : undefined}
+                    >
+                      {active && !noValue ? fmtRoas(t.roas) : active ? 'n/a' : '-'}
                     </td>
                     <td className={cx('px-3 py-2.5 text-end font-medium tabular-nums', active && healthText(metricHealth(t.cpa, s.target.targetCpa, false)))}>
                       {active && t.conversions > 0 ? fmtMoney2(t.cpa) : '-'}

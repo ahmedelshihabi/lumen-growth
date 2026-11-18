@@ -7,6 +7,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AdAccount, Campaign, CampaignDailyMetric, CampaignStatus, Creative, CreativeDailyMetric, CreativeFormat, DateRange, ISODate } from './types';
 import type { DataSource } from './source';
+import type { TargetsByAccount } from '../rules/types';
 import { addDays, localToday } from '../lib/dates';
 import { mapObjective } from '../../supabase/functions/_shared/meta.ts';
 
@@ -24,6 +25,7 @@ interface InsightRow {
   revenue: number | string;
   video_views_3s: number | string;
   frequency: number | string;
+  messaging_conversations: number | string | null;
 }
 
 const n = (v: number | string | null | undefined) => (v === null || v === undefined ? 0 : Number(v));
@@ -120,7 +122,7 @@ export class SupabaseDataSource implements DataSource {
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await this.db
         .from('insights_daily')
-        .select('date, campaign_id, ad_id, spend, impressions, reach, clicks, conversions, revenue, video_views_3s, frequency')
+        .select('date, campaign_id, ad_id, spend, impressions, reach, clicks, conversions, revenue, video_views_3s, frequency, messaging_conversations')
         .eq('workspace_id', this.workspaceId)
         .eq('level', level)
         .gte('date', range.start)
@@ -146,6 +148,7 @@ export class SupabaseDataSource implements DataSource {
       conversions: n(r.conversions),
       revenue: n(r.revenue),
       frequency: n(r.frequency),
+      conversations: n(r.messaging_conversations),
     }));
   }
 
@@ -179,5 +182,36 @@ export class SupabaseDataSource implements DataSource {
       const { error } = await this.db.from('campaign_budgets').delete().eq('workspace_id', this.workspaceId).in('campaign_id', deletes);
       if (error) throw error;
     }
+  }
+
+  async getTargets(): Promise<TargetsByAccount> {
+    const { data, error } = await this.db
+      .from('account_targets')
+      .select('ad_account_id, target_cpa, target_roas')
+      .eq('workspace_id', this.workspaceId);
+    if (error) throw error;
+    return Object.fromEntries(
+      (data ?? []).map((r) => [r.ad_account_id as string, { targetCpa: n(r.target_cpa), targetRoas: n(r.target_roas) }]),
+    );
+  }
+
+  async saveTargets(targets: TargetsByAccount | null): Promise<void> {
+    if (targets === null) {
+      const { error } = await this.db.from('account_targets').delete().eq('workspace_id', this.workspaceId);
+      if (error) throw error;
+      return;
+    }
+    const rows = Object.entries(targets)
+      .filter(([, t]) => t.targetCpa > 0 && t.targetRoas > 0)
+      .map(([ad_account_id, t]) => ({
+        workspace_id: this.workspaceId,
+        ad_account_id,
+        target_cpa: t.targetCpa,
+        target_roas: t.targetRoas,
+        updated_at: new Date().toISOString(),
+      }));
+    if (!rows.length) return;
+    const { error } = await this.db.from('account_targets').upsert(rows, { onConflict: 'workspace_id,ad_account_id' });
+    if (error) throw error;
   }
 }

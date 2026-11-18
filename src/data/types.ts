@@ -64,6 +64,8 @@ export interface CampaignDailyMetric {
   revenue: number;
   /** Rolling 7-day frequency as reported by the platform for that day. */
   frequency: number;
+  /** Conversations started from click-to-message ads (WhatsApp / Messenger / Instagram). */
+  conversations?: number;
 }
 
 /** One row per creative (ad) per day. */

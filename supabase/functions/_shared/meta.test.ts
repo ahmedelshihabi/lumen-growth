@@ -16,6 +16,7 @@ describe('mapInsightRow', () => {
       { action_type: 'video_view', value: '9000' },
       { action_type: 'offsite_conversion.fb_pixel_purchase', value: '12' },
       { action_type: 'omni_purchase', value: '12' },
+      { action_type: 'onsite_conversion.messaging_conversation_started_7d', value: '37' },
     ],
     action_values: [
       { action_type: 'offsite_conversion.fb_pixel_purchase', value: '6000.5' },
@@ -27,7 +28,7 @@ describe('mapInsightRow', () => {
     expect(mapInsightRow(row, 'campaign')).toEqual({
       level: 'campaign', date: '2026-11-10', campaign_id: '120200000001', ad_id: '',
       spend: 1234.57, impressions: 50000, reach: 30000, clicks: 800,
-      conversions: 12, revenue: 6000.5, video_views_3s: 9000, frequency: 1.667,
+      conversions: 12, revenue: 6000.5, video_views_3s: 9000, frequency: 1.667, messaging_conversations: 37,
     });
   });
 
@@ -39,7 +40,7 @@ describe('mapInsightRow', () => {
 
   it('defaults missing metrics to 0', () => {
     const r = mapInsightRow({ date_start: '2026-11-10', campaign_id: '1' }, 'campaign')!;
-    expect([r.spend, r.conversions, r.revenue, r.video_views_3s]).toEqual([0, 0, 0, 0]);
+    expect([r.spend, r.conversions, r.revenue, r.video_views_3s, r.messaging_conversations]).toEqual([0, 0, 0, 0, 0]);
   });
 });
 

@@ -5,6 +5,7 @@ import { detectAnomalies, DEFAULT_ANOMALY_CONFIG } from './anomalies';
 import { detectFatigue } from './fatigue';
 import { computePacing } from './pacing';
 import { summarizeCampaigns, type CampaignSummary } from './summary';
+import { lacksValueTracking } from './health';
 import type { RulesInput } from './types';
 import { msg, renderEn, type Msg } from './msg';
 
@@ -15,7 +16,8 @@ export type RecommendationType =
   | 'lower_budget'
   | 'refresh_creative'
   | 'fix_delivery'
-  | 'expand_audience';
+  | 'expand_audience'
+  | 'relaunch_campaign';
 
 export type Priority = 'high' | 'medium' | 'low';
 
@@ -49,6 +51,9 @@ export interface RecommendationConfig {
   /** share of returns kept when scaling (diminishing returns) */
   scaleEfficiency: number;
   frequencyMax: number;
+  /** How far back to look for paused winners worth relaunching. */
+  relaunchLookbackDays: number;
+  relaunchMinConversions: number;
 }
 
 export const DEFAULT_RECOMMENDATION_CONFIG: RecommendationConfig = {
@@ -59,6 +64,8 @@ export const DEFAULT_RECOMMENDATION_CONFIG: RecommendationConfig = {
   pauseRoasRatio: 0.25,
   scaleEfficiency: 0.7,
   frequencyMax: 4,
+  relaunchLookbackDays: 30,
+  relaunchMinConversions: 5,
 };
 
 const DAYS_PER_MONTH = 30;
@@ -102,7 +109,11 @@ export function generateRecommendations(
   const recs: Recommendation[] = [];
   const handled = new Set<string>();
 
-  const eligible = summaries.filter((s) => s.campaign.status !== 'PAUSED' && s.totals.spend >= config.minSpend);
+  // Campaigns without purchase value (click-to-WhatsApp etc.) read ROAS 0; never pause or
+  // drain them because of ROAS.
+  const eligible = summaries.filter(
+    (s) => s.campaign.status !== 'PAUSED' && s.totals.spend >= config.minSpend && !lacksValueTracking(s.totals),
+  );
 
   // --- Pause money-losers far below goal --------------------------------------
   for (const s of eligible) {
@@ -223,6 +234,44 @@ export function generateRecommendations(
         channels: [a.channel],
       });
     }
+  }
+
+  // --- Relaunch paused winners -------------------------------------------------
+  // A campaign someone paused that was beating its goals is the cheapest growth there is:
+  // proven audience, proven creative.
+  const lookback = rangeEnding(asOf, config.relaunchLookbackDays);
+  for (const s of summarizeCampaigns(campaigns, campaignDaily, lookback, targets)) {
+    if (s.campaign.status !== 'PAUSED') continue;
+    if (s.totals.spend < config.minSpend || s.totals.conversions < config.relaunchMinConversions) continue;
+    if (lacksValueTracking(s.totals) || s.health !== 'good') continue;
+    const activeDays = new Set(
+      campaignDaily
+        .filter((r) => r.campaignId === s.campaign.id && r.spend >= 1 && r.date >= lookback.start && r.date <= lookback.end)
+        .map((r) => r.date),
+    ).size;
+    if (activeDays === 0) continue;
+    const dailySpend = s.totals.spend / activeDays;
+    const monthly = (s.totals.revenue / activeDays) * DAYS_PER_MONTH * config.scaleEfficiency;
+    recs.push({
+      id: `relaunch_campaign:${s.campaign.id}`,
+      type: 'relaunch_campaign',
+      priority: priorityFor(monthly),
+      ...texts(
+        msg('recMsg.relaunch.title', { name: s.campaign.name, roas: `${s.totals.roas.toFixed(2)}x` }),
+        msg('recMsg.relaunch.rationale', {
+          days: activeDays,
+          spend: money(s.totals.spend),
+          roas: `${s.totals.roas.toFixed(2)}x`,
+          goal: `${s.target.targetRoas.toFixed(1)}x`,
+          cpa: money(s.totals.cpa),
+          daily: money(dailySpend),
+        }),
+      ),
+      impact: impact('revenue', monthly, msg('recMsg.label.relaunch')),
+      campaignIds: [s.campaign.id],
+      creativeIds: [],
+      channels: [s.campaign.channel],
+    });
   }
 
   // --- Budget pacing ----------------------------------------------------------

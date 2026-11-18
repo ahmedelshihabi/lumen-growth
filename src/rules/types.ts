@@ -17,6 +17,8 @@ export interface RulesInput {
   creativeDaily: CreativeDailyMetric[];
   asOf: ISODate;
   targets: TargetsByAccount;
+  /** Ad account display names by account id (used by account-level alerts). */
+  accountNames?: Record<string, string>;
 }
 
 export const FALLBACK_TARGET: AccountTarget = { targetCpa: 35, targetRoas: 2.5 };

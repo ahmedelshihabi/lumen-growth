@@ -2,13 +2,12 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import type { Dataset } from '../data/types';
 import { loadDataset, type DataSource } from '../data/source';
 import { setDisplayCurrency } from '../lib/format';
-import { DEFAULT_TARGETS } from '../rules/targets';
+import { deriveTargets } from '../rules/targets';
 import type { RulesInput, TargetsByAccount } from '../rules/types';
 
 export type RangeDays = 7 | 14 | 30 | 90;
 export type Theme = 'light' | 'dark';
 
-const TARGETS_KEY = 'lumen.targets.v1';
 const THEME_KEY = 'lumen.theme';
 const RANGE_KEY = 'lumen.range';
 
@@ -37,7 +36,10 @@ interface AppState {
   error: string | null;
   rangeDays: RangeDays;
   setRangeDays: (d: RangeDays) => void;
+  /** Effective goals: saved goals, plus automatic ones (account average) for the rest. */
   targets: TargetsByAccount;
+  /** Accounts whose goals are automatic (nobody has saved goals for them yet). */
+  autoTargetIds: string[];
   setTargets: (t: TargetsByAccount) => void;
   resetTargets: () => void;
   theme: Theme;
@@ -62,19 +64,17 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
     const v = Number(readJSON<number>(RANGE_KEY, 30));
     return ([7, 14, 30, 90] as const).includes(v as RangeDays) ? (v as RangeDays) : 30;
   });
-  const [targets, setTargetsState] = useState<TargetsByAccount>(() => ({
-    ...DEFAULT_TARGETS,
-    ...readJSON<TargetsByAccount>(TARGETS_KEY, {}),
-  }));
+  const [savedTargets, setSavedTargets] = useState<TargetsByAccount>({});
   const [theme, setTheme] = useState<Theme>(initialTheme);
 
   useEffect(() => {
     let alive = true;
     setError(null);
-    loadDataset(source)
-      .then((d) => {
+    Promise.all([loadDataset(source), source.getTargets()])
+      .then(([d, saved]) => {
         if (!alive) return;
         if (d.accounts[0]) setDisplayCurrency(d.accounts[0].currency);
+        setSavedTargets(saved);
         setData(d);
       })
       .catch((e: unknown) => alive && setError(e instanceof Error ? e.message : String(e)));
@@ -93,19 +93,32 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
     write(RANGE_KEY, String(d));
   }, []);
 
-  const setTargets = useCallback((t: TargetsByAccount) => {
-    setTargetsState(t);
-    write(TARGETS_KEY, JSON.stringify(t));
-  }, []);
+  const autoTargets = useMemo<TargetsByAccount>(
+    () => (data ? deriveTargets(data.campaigns, data.campaignDaily, data.asOf) : {}),
+    [data],
+  );
+  const targets = useMemo<TargetsByAccount>(() => ({ ...autoTargets, ...savedTargets }), [autoTargets, savedTargets]);
+  const autoTargetIds = useMemo(
+    () => (data ? data.accounts.map((a) => a.id).filter((id) => !(id in savedTargets) && id in autoTargets) : []),
+    [data, savedTargets, autoTargets],
+  );
+
+  const setTargets = useCallback(
+    (t: TargetsByAccount) => {
+      setSavedTargets((prev) => ({ ...prev, ...t }));
+      source.saveTargets(t).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+    },
+    [source],
+  );
 
   const resetTargets = useCallback(() => {
-    setTargetsState({ ...DEFAULT_TARGETS });
-    try {
-      localStorage.removeItem(TARGETS_KEY);
-    } catch {
-      /* ignore */
-    }
-  }, []);
+    setSavedTargets({});
+    source
+      .saveTargets(null)
+      .then(() => source.getTargets())
+      .then(setSavedTargets)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  }, [source]);
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => {
@@ -125,14 +138,15 @@ export function AppProvider({ children, source }: { children: ReactNode; source:
             creativeDaily: data.creativeDaily,
             asOf: data.asOf,
             targets,
+            accountNames: Object.fromEntries(data.accounts.map((a) => [a.id, a.name])),
           }
         : null,
     [data, targets],
   );
 
   const value = useMemo<AppState>(
-    () => ({ source, data, reload, error, rangeDays, setRangeDays, targets, setTargets, resetTargets, theme, toggleTheme, rulesInput }),
-    [source, data, reload, error, rangeDays, setRangeDays, targets, setTargets, resetTargets, theme, toggleTheme, rulesInput],
+    () => ({ source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, theme, toggleTheme, rulesInput }),
+    [source, data, reload, error, rangeDays, setRangeDays, targets, autoTargetIds, setTargets, resetTargets, theme, toggleTheme, rulesInput],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

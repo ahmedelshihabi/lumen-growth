@@ -125,7 +125,7 @@ function BudgetsCard() {
 }
 
 export default function Settings() {
-  const { data, source, targets, setTargets, resetTargets, theme, toggleTheme } = useLoadedApp();
+  const { data, source, targets, autoTargetIds, setTargets, resetTargets, theme, toggleTheme } = useLoadedApp();
   const { t, lang, toggleLang } = useI18n();
   const ids = data.accounts.map((a) => a.id);
   const [draft, setDraft] = useState<Draft>(() => toDraft(targets, ids));
@@ -175,6 +175,9 @@ export default function Settings() {
                         {t('settings.accountId', { id: a.id })}
                       </span>
                     </div>
+                    {autoTargetIds.includes(a.id) && (
+                      <div className="mt-1 text-xs font-medium text-sky-700 dark:text-sky-300">{t('settings.goalsAuto')}</div>
+                    )}
                   </div>
                   <label className="block text-xs font-medium text-zinc-600 dark:text-zinc-300">
                     {t('settings.targetCpa')} ({a.currency})

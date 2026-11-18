@@ -7,6 +7,18 @@ export interface HealthInput {
   roas: number;
   cpa: number;
   conversions: number;
+  revenue?: number;
+  conversations?: number;
+}
+
+/**
+ * True when a campaign gets results but reports no purchase value: click-to-WhatsApp /
+ * Messenger campaigns, or a pixel that fires Purchase without a value. ROAS is meaningless
+ * for these (it reads 0), so they are judged by CPA / cost per conversation instead and are
+ * never told to pause or give up budget because of ROAS.
+ */
+export function lacksValueTracking(m: HealthInput): boolean {
+  return m.spend > 0 && m.revenue !== undefined && m.revenue <= 0 && (m.conversions > 0 || (m.conversations ?? 0) > 0);
 }
 
 /**
@@ -23,6 +35,12 @@ export function healthScore(m: HealthInput, target: AccountTarget): number {
 
 export function campaignHealth(m: HealthInput, target: AccountTarget): Health {
   if (m.spend <= 0) return 'inactive';
+  if (lacksValueTracking(m)) {
+    // No purchase value: judge by CPA alone; conversation-only campaigns have no goal to compare to.
+    if (m.conversions <= 0 || target.targetCpa <= 0) return 'warning';
+    const c = target.targetCpa / m.cpa;
+    return c >= 1 ? 'good' : c >= 0.8 ? 'warning' : 'critical';
+  }
   const s = healthScore(m, target);
   if (s >= 1) return 'good';
   if (s >= 0.8) return 'warning';

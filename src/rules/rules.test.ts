@@ -7,7 +7,7 @@ import { campaignHealth } from './health';
 import { computePacing } from './pacing';
 import { generateRecommendations } from './recommendations';
 import { generateDataset } from '../data/mock';
-import { DEFAULT_TARGETS } from './targets';
+import { DEFAULT_TARGETS, deriveTargets } from './targets';
 import { DICTS } from '../i18n/dict';
 
 const AS_OF = '2026-03-20';
@@ -210,5 +210,73 @@ describe('translatable rule texts', () => {
         expect(s, `${lang}:${m.key}`).not.toMatch(/\{\w+\}/);
       }
     }
+  });
+});
+
+describe('expert-feedback rules (live account review)', () => {
+  // Mirrors the real case: an EGP account that spent for weeks, then everything was paused.
+  const egp = { targetCpa: 650, targetRoas: 2.4 };
+  const pausedWinner = campaign('win', { status: 'PAUSED', dailyBudget: 2000, name: 'ADV VIDS' });
+  const pausedLoser = campaign('lose', { status: 'PAUSED', dailyBudget: 900, name: 'Website Conversion' });
+  const whatsapp = campaign('wa', { status: 'ACTIVE', dailyBudget: 1700, name: 'WhatsApp only' });
+  // Spent until 3 days ago, nothing since.
+  const stoppedRows = (id: string, spend: number, conv: number, rev: number) =>
+    series(id, 25, (k) => (k < 3 ? null : { spend, conversions: conv, revenue: rev }));
+
+  it('derives goals per account from its own last 30 days (no USD-sized CPA on EGP accounts)', () => {
+    const t = deriveTargets(
+      [campaign('x', { accountId: 'act_1' })],
+      series('x', 30, () => ({ spend: 2000, conversions: 3, revenue: 4800 })),
+      AS_OF,
+    );
+    expect(t.act_1).toEqual({ targetCpa: 667, targetRoas: 2.4 });
+    // No purchases -> no derived goal.
+    expect(deriveTargets([campaign('y', { accountId: 'a2' })], series('y', 30, () => ({ conversions: 0, revenue: 0 })), AS_OF).a2).toBeUndefined();
+  });
+
+  it('raises a critical alert when a whole account stops spending, even if every campaign is paused', () => {
+    const out = detectAnomalies({
+      campaigns: [pausedWinner, pausedLoser],
+      campaignDaily: [...stoppedRows('win', 2000, 4, 6200), ...stoppedRows('lose', 900, 1, 1400)],
+      asOf: AS_OF,
+      accountNames: { acc: 'Wingoo Spare 01' },
+    });
+    const acc = out.find((a) => a.type === 'account_stopped');
+    expect(acc?.severity).toBe('critical');
+    expect(acc?.title).toBe('Wingoo Spare 01: no spend for 3 days');
+    expect(acc?.detailMsg.vars.paused).toBe(2);
+    // Campaign-level "spend stopped" still ignores paused campaigns.
+    expect(out.some((a) => a.type === 'spend_stopped')).toBe(false);
+  });
+
+  it('recommends relaunching a paused campaign that beat its goal, but not a paused loser', () => {
+    const recs = generateRecommendations({
+      campaigns: [pausedWinner, pausedLoser],
+      campaignDaily: [...stoppedRows('win', 2000, 4, 6200), ...stoppedRows('lose', 900, 1, 1400)],
+      creatives: [],
+      creativeDaily: [],
+      asOf: AS_OF,
+      targets: { acc: egp },
+    });
+    const relaunch = recs.filter((r) => r.type === 'relaunch_campaign');
+    expect(relaunch.map((r) => r.campaignIds[0])).toEqual(['win']);
+    expect(relaunch[0].title).toBe('Relaunch ADV VIDS (ROAS 3.10x before it was paused)');
+    // 22 active days * 6200 revenue / 22 * 30 * 0.7
+    expect(relaunch[0].impact.monthly).toBeCloseTo(6200 * 30 * 0.7);
+  });
+
+  it('never tells you to pause or drain a WhatsApp campaign because its ROAS reads 0', () => {
+    const recs = generateRecommendations({
+      campaigns: [whatsapp, campaign('good', { dailyBudget: 1000 })],
+      campaignDaily: [
+        ...series('wa', 21, () => ({ spend: 1700, conversions: 1, revenue: 0, conversations: 40 })),
+        ...series('good', 21, () => ({ spend: 1000, conversions: 3, revenue: 4000 })),
+      ],
+      creatives: [],
+      creativeDaily: [],
+      asOf: AS_OF,
+      targets: { acc: egp },
+    });
+    expect(recs.some((r) => r.campaignIds.includes('wa') && (r.type === 'pause_campaign' || r.type === 'shift_budget'))).toBe(false);
   });
 });

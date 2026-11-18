@@ -73,6 +73,8 @@ export interface InsightDailyRecord {
   revenue: number;
   video_views_3s: number;
   frequency: number;
+  /** Conversations started in WhatsApp / Messenger / Instagram Direct (click-to-message ads). */
+  messaging_conversations: number;
 }
 
 // VERIFY: purchase action types. Meta reports the same purchase under several
@@ -80,6 +82,8 @@ export interface InsightDailyRecord {
 export const PURCHASE_ACTION_TYPES = ['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase', 'onsite_web_purchase'];
 // VERIFY: 'video_view' in `actions` is Meta's 3-second video view count.
 export const VIDEO_3S_ACTION_TYPE = 'video_view';
+// VERIFY: conversations started from click-to-message ads (WhatsApp, Messenger, Instagram Direct).
+export const MESSAGING_ACTION_TYPES = ['onsite_conversion.messaging_conversation_started_7d'];
 
 const num = (s: string | number | undefined | null): number => {
   const n = typeof s === 'number' ? s : Number(s ?? 0);
@@ -111,6 +115,7 @@ export function mapInsightRow(row: MetaInsightRow, level: 'campaign' | 'ad'): In
     revenue: Math.round(pickAction(row.action_values, PURCHASE_ACTION_TYPES) * 100) / 100,
     video_views_3s: Math.round(pickAction(row.actions, [VIDEO_3S_ACTION_TYPE])),
     frequency: Math.round(num(row.frequency) * 1000) / 1000,
+    messaging_conversations: Math.round(pickAction(row.actions, MESSAGING_ACTION_TYPES)),
   };
 }
 

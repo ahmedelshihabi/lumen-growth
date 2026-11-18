@@ -5,7 +5,7 @@ import { detectAnomalies, DEFAULT_ANOMALY_CONFIG, type AnomalyType, type Severit
 import { formatShortDate } from '../lib/dates';
 import { useI18n } from '../i18n';
 
-const TYPES: AnomalyType[] = ['cpa_spike', 'roas_drop', 'spend_stopped', 'high_frequency'];
+const TYPES: AnomalyType[] = ['account_stopped', 'cpa_spike', 'roas_drop', 'spend_stopped', 'high_frequency'];
 
 export default function Alerts() {
   const { rulesInput } = useLoadedApp();
@@ -26,7 +26,7 @@ export default function Alerts() {
         <StatCard label={t('severity.critical')} value={count('critical')} tone={count('critical') ? 'red' : undefined} />
         <StatCard label={t('severity.high')} value={count('high')} tone={count('high') ? 'red' : undefined} />
         <StatCard label={t('severity.medium')} value={count('medium')} tone={count('medium') ? 'amber' : undefined} />
-        <StatCard label={t('alerts.campaignsAffected')} value={new Set(all.map((a) => a.campaignId)).size} />
+        <StatCard label={t('alerts.campaignsAffected')} value={new Set(all.filter((a) => a.campaignId).map((a) => a.campaignId)).size} />
       </div>
 
       <Card
@@ -89,6 +89,7 @@ export default function Alerts() {
             [t('anomaly.cpa_spike'), t('alerts.rule.cpa', { pct: cfg.cpaSpikePct * 100, min: cfg.minConversions, days: cfg.lookbackDays })],
             [t('anomaly.roas_drop'), t('alerts.rule.roas', { recent: cfg.roasRecentDays, pct: cfg.roasDropPct * 100, base: cfg.roasBaselineDays })],
             [t('anomaly.spend_stopped'), t('alerts.rule.stopped')],
+            [t('anomaly.account_stopped'), t('alerts.rule.account')],
             [t('anomaly.high_frequency'), t('alerts.rule.freq', { max: cfg.frequencyMax })],
           ].map(([name, desc]) => (
             <li key={name} className="bg-white p-4 dark:bg-zinc-900">

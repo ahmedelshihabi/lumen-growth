@@ -9,6 +9,8 @@ import type { AdAccount, Campaign, CampaignDailyMetric, Creative, CreativeDailyM
 import { generateDataset, HISTORY_DAYS } from './mock';
 import { addDays, localToday } from '../lib/dates';
 import { filterRange } from '../lib/metrics';
+import { DEFAULT_TARGETS } from '../rules/targets';
+import type { TargetsByAccount } from '../rules/types';
 
 export interface DataSource {
   readonly kind: 'mock' | 'supabase';
@@ -26,9 +28,14 @@ export interface DataSource {
    * `null` removes a budget.
    */
   saveMonthlyBudgets(budgets: Record<string, number | null>): Promise<void>;
+  /** Saved account goals. Accounts without an entry get goals derived from their own history. */
+  getTargets(): Promise<TargetsByAccount>;
+  /** Save goals for the given accounts; `null` removes every saved goal (back to automatic). */
+  saveTargets(targets: TargetsByAccount | null): Promise<void>;
 }
 
 const BUDGETS_KEY = 'lumen.demoBudgets.v1';
+const TARGETS_KEY = 'lumen.targets.v1';
 
 function readBudgetOverrides(): Record<string, number | null> {
   try {
@@ -70,6 +77,22 @@ export class MockDataSource implements DataSource {
     const next = { ...readBudgetOverrides(), ...budgets };
     try {
       localStorage.setItem(BUDGETS_KEY, JSON.stringify(next));
+    } catch {
+      /* storage unavailable */
+    }
+  }
+  /** Demo mode: the sample accounts' goals plus edits kept in this browser. */
+  async getTargets(): Promise<TargetsByAccount> {
+    try {
+      return { ...DEFAULT_TARGETS, ...(JSON.parse(localStorage.getItem(TARGETS_KEY) ?? '{}') as TargetsByAccount) };
+    } catch {
+      return { ...DEFAULT_TARGETS };
+    }
+  }
+  async saveTargets(targets: TargetsByAccount | null) {
+    try {
+      if (targets === null) localStorage.removeItem(TARGETS_KEY);
+      else localStorage.setItem(TARGETS_KEY, JSON.stringify(targets));
     } catch {
       /* storage unavailable */
     }

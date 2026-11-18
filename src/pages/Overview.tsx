@@ -33,7 +33,7 @@ const KPIS: Kpi[] = [
 const CHANNELS: Channel[] = ['meta', 'google', 'tiktok'];
 
 export default function Overview() {
-  const { data, rangeDays, theme, rulesInput } = useLoadedApp();
+  const { data, rangeDays, theme, rulesInput, autoTargetIds } = useLoadedApp();
   const { t } = useI18n();
   const colors = chartColors(theme);
 
@@ -68,6 +68,15 @@ export default function Overview() {
         subtitle={t('overview.subtitle', { start: formatShortDate(model.range.start), end: formatShortDate(model.range.end), n: rangeDays })}
         actions={<RangePicker />}
       />
+
+      {autoTargetIds.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200">
+          <span className="min-w-0 flex-1">{t('goals.autoBanner')}</span>
+          <Link href="/app/settings" className="font-semibold underline-offset-2 hover:underline">
+            {t('goals.setNow')}
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {KPIS.map((k) => (
