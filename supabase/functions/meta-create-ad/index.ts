@@ -2,7 +2,7 @@
 // "Create ad" page. Everything is created PAUSED; the advertiser turns it on in Ads Manager.
 //
 // Actions:
-//   { action: 'pages' }                                  -> { pages: [{id, name, picture}] }
+//   { action: 'pages', ad_account_id }                   -> { pages: [{id, name, picture}] }
 //   { action: 'pixels', ad_account_id }                  -> { pixels: [{id, name}] }
 //   { action: 'create', input: CreateAdInput, image? }   -> { campaign_id, adset_id, creative_id, ad_id, ads_manager_url }
 //      image = { base64, filename, content_type } (jpg/png, <= 8MB)
@@ -77,14 +77,27 @@ serve(async (req) => {
   };
 
   if (body.action === 'pages') {
-    // VERIFY: /me/accounts lists Pages the user has a task on; picture{url} field shape.
-    const pages = await graphGetAll<{ id: string; name: string; picture?: { data?: { url?: string } } }>(
-      'me/accounts',
-      { fields: 'id,name,picture{url}', limit: '100' },
-      token,
-      5,
-    );
-    return json({ pages: pages.map((p) => ({ id: p.id, name: p.name, picture: p.picture?.data?.url ?? null })) });
+    // Pages this ad account may advertise with. Business-owned Pages (the usual case for a
+    // store) only show up here, not in /me/accounts, which lists Pages the person has a
+    // personal role on. Fall back to /me/accounts if the account endpoint returns nothing.
+    type GraphPage = { id: string; name: string; picture?: { data?: { url?: string } } };
+    const params = { fields: 'id,name,picture{url}', limit: '100' };
+    let pages: GraphPage[] = [];
+    if (body.ad_account_id) {
+      const acc = await loadAccount(body.ad_account_id);
+      // VERIFY: /{act_id}/promote_pages returns the Pages the ad account can promote.
+      pages = await graphGetAll<GraphPage>(`${acc.meta_account_id}/promote_pages`, params, token, 5).catch(() => []);
+    }
+    if (!pages.length) {
+      // VERIFY: /me/accounts lists Pages the user has a task on; picture{url} field shape.
+      pages = await graphGetAll<GraphPage>('me/accounts', params, token, 5);
+    }
+    const seen = new Set<string>();
+    return json({
+      pages: pages
+        .filter((p) => !seen.has(p.id) && seen.add(p.id))
+        .map((p) => ({ id: p.id, name: p.name, picture: p.picture?.data?.url ?? null })),
+    });
   }
 
   if (body.action === 'pixels') {

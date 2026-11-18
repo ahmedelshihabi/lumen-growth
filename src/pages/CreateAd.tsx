@@ -147,14 +147,31 @@ export default function CreateAd() {
         if (error) setLoadError(error.message);
         setAccounts(((data as { meta_account_id: string; name: string; currency: string }[] | null) ?? []).map((r) => ({ id: r.meta_account_id, name: r.name, currency: r.currency })));
       });
-    void supabase!.functions.invoke('meta-create-ad', { body: { action: 'pages', workspace_id: workspace.id } }).then(async ({ data, error }) => {
-      if (error) {
-        const e = await invokeError(error);
-        setLoadError(errKey(e.code) ? t(errKey(e.code)!) : e.message);
-        setPages([]);
-      } else setPages((data as { pages: PageOption[] }).pages);
-    });
   }, [live, workspace, app.data, t]);
+
+  // Pages the chosen ad account can advertise with (business-owned Pages included).
+  useEffect(() => {
+    if (!live || !workspace || !form.adAccountId) return;
+    let alive = true;
+    setPages(null);
+    void supabase!.functions
+      .invoke('meta-create-ad', { body: { action: 'pages', workspace_id: workspace.id, ad_account_id: form.adAccountId } })
+      .then(async ({ data, error }) => {
+        if (!alive) return;
+        if (error) {
+          const e = await invokeError(error);
+          setLoadError(errKey(e.code) ? t(errKey(e.code)!) : e.message);
+          setPages([]);
+        } else {
+          const list = (data as { pages: PageOption[] }).pages;
+          setPages(list);
+          setForm((f) => (list.some((p) => p.id === f.pageId) ? f : { ...f, pageId: list[0]?.id ?? '' }));
+        }
+      });
+    return () => {
+      alive = false;
+    };
+  }, [live, workspace, form.adAccountId, t]);
 
   // Default the account and page once loaded.
   useEffect(() => {
