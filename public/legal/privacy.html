@@ -12,19 +12,21 @@
 <h2>البيانات اللي بنجمعها</h2>
 <ul>
 <li>بيانات الحساب: الاسم والبريد الإلكتروني (عن طريق Supabase Auth أو Google).</li>
-<li>بيانات إعلانات ميتا بعد موافقتك: أسماء الحسابات الإعلانية والحملات والإعلانات ومؤشرات الأداء اليومية (الإنفاق، الظهور، النقرات، المشتريات وقيمتها). بنستخدم صلاحية <code>ads_read</code> للقراءة فقط.</li>
+<li>بيانات إعلانات ميتا بعد موافقتك: أسماء الحسابات الإعلانية والحملات والإعلانات ومؤشرات الأداء اليومية (الإنفاق، الظهور، النقرات، المشتريات وقيمتها). بنستخدم صلاحية <code>ads_read</code> لقراءة الأداء.</li>
+<li>إنشاء الإعلانات: لو استخدمت صفحة «إنشاء إعلان»، بنستخدم صلاحيات <code>ads_management</code> و<code>pages_show_list</code> و<code>pages_read_engagement</code> علشان نعرض صفحاتك ونعمل الحملة والإعلان اللي إنت طلبتهم بالظبط، وكلها بتتعمل متوقفة لحد ما إنت تشغلها. مش بنعدل ولا بنشغل أي حاجة من غير طلبك.</li>
+<li>الصور والنصوص اللي بترفعها للإعلان بتتبعت لميتا مباشرة ومش بنحتفظ بيها.</li>
 <li>بيانات الدفع: بتتعالج عند Paymob؛ إحنا مش بنخزن أرقام الكروت. بنحتفظ بمرجع العملية والمبلغ والحالة.</li>
 </ul>
 <h2>استخدام البيانات</h2>
 <p>بنستخدم البيانات بس علشان نعرضلك لوحة التحكم والتنبيهات والتوصيات وندير اشتراكك. مش بنبيع البيانات ولا بنشاركها مع معلنين.</p>
 <h2>الحذف</h2>
-<p>تقدر تفصل ميتا أو تطلب حذف حسابك وبياناتك في أي وقت عن طريق [support@your-domain]، وبنحذفها خلال ٣٠ يوم. (ميتا بتطلب رابط أو تعليمات لحذف البيانات.)</p>
+<p>تقدر تفصل ميتا أو تطلب حذف حسابك وبياناتك في أي وقت. التعليمات الكاملة في <a href="/legal/data-deletion.html">صفحة حذف البيانات</a>.</p>
 <h2>التخزين والأمان</h2>
 <p>البيانات متخزنة على Supabase [منطقة السيرفر]. رموز الدخول لميتا متخزنة على السيرفر بس ومش بتوصل للمتصفح.</p>
 <section lang="en">
 <h1>Privacy Policy</h1>
 <p>Last updated: [date]. Provider: [your name / company], [address], email: [support@your-domain].</p>
-<p>We collect account data (name, email), Meta advertising data you authorise (ad account, campaign and ad names and daily performance metrics, read-only via <code>ads_read</code>), and payment references (card data is processed by Paymob, not stored by us). We use it only to provide the dashboard, alerts, recommendations and billing. We do not sell data. You can disconnect Meta or request deletion of your account and data at any time via [support@your-domain]; we delete it within 30 days.</p>
+<p>We collect account data (name, email), Meta advertising data you authorise (ad account, campaign and ad names and daily performance metrics via <code>ads_read</code>). If you use the "Create ad" page we use <code>ads_management</code>, <code>pages_show_list</code> and <code>pages_read_engagement</code> to list your Pages and create exactly the campaign and ad you submit, always paused until you turn it on; images and texts you upload are sent straight to Meta and not stored by us, and payment references (card data is processed by Paymob, not stored by us). We use it only to provide the dashboard, alerts, recommendations and billing. We do not sell data. You can disconnect Meta or request deletion of your account and data at any time; see the <a href="/legal/data-deletion.html">data deletion instructions</a>.</p>
 </section>
 </body>
 </html>
