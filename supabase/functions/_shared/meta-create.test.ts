@@ -8,9 +8,11 @@ import {
   buildCreativePayload,
   buildTargeting,
   normalizeTargetingRows,
+  rankTargetingOptions,
   toFormFields,
   validateCreateAdInput,
   type CreateAdInput,
+  type TargetingOption,
 } from './meta-create.ts';
 import { majorToMinor, META_SCOPES } from './meta.ts';
 
@@ -177,5 +179,13 @@ describe('detailed targeting', () => {
       { id: '6003397425735', name: 'Headphones', type: 'interests', path: ['Interests', 'Technology'], sizeLower: 1000, sizeUpper: 2000 },
       { id: '3', name: 'Married', type: 'relationship_statuses', path: [], sizeLower: null, sizeUpper: null },
     ]);
+  });
+});
+
+describe('rankTargetingOptions', () => {
+  const o = (id: string, type: TargetingOption['type']): TargetingOption => ({ id, name: id, type, path: [], sizeLower: null, sizeUpper: null });
+  it('keeps precise interest matches first, then behaviours, then demographics', () => {
+    const ranked = rankTargetingOptions([o('1', 'interests'), o('2', 'interests'), o('3', 'life_events'), o('4', 'behaviors'), o('5', 'interests')], 2);
+    expect(ranked.map((x) => x.id)).toEqual(['1', '2', '5', '4', '3']);
   });
 });

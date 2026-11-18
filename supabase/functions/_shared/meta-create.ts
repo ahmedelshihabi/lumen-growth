@@ -85,6 +85,21 @@ export function normalizeTargetingRows(rows: readonly RawTargetingRow[]): Target
   return out;
 }
 
+const TYPE_RANK: Partial<Record<TargetingType, number>> = { interests: 0, behaviors: 1 };
+
+/**
+ * Order search results the way a media buyer expects: the precise interest matches first
+ * (in Meta's own order), then behaviours, then demographics / life events. `preciseCount`
+ * is how many leading rows came from the exact interest search.
+ */
+export function rankTargetingOptions(options: TargetingOption[], preciseCount: number): TargetingOption[] {
+  const precise = options.slice(0, preciseCount);
+  const rest = options.slice(preciseCount);
+  const rank = (o: TargetingOption) => TYPE_RANK[o.type] ?? 2;
+  const restSorted = rest.map((o, i) => ({ o, i })).sort((a, b) => rank(a.o) - rank(b.o) || a.i - b.i).map((x) => x.o);
+  return [...precise, ...restSorted];
+}
+
 export interface CreateAdInput {
   /** 'act_123...' */
   adAccountId: string;

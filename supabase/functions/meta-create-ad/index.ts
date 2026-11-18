@@ -26,6 +26,7 @@ import {
   buildCampaignPayload,
   buildCreativePayload,
   normalizeTargetingRows,
+  rankTargetingOptions,
   toFormFields,
   validateCreateAdInput,
   type CreateAdInput,
@@ -113,13 +114,26 @@ serve(async (req) => {
   }
 
   if (body.action === 'targeting_search') {
-    // Interests, behaviours and demographics matching the typed text.
+    // Interests first: /search?type=adinterest is Meta's precise interest search (what Ads
+    // Manager's "Detailed targeting" box uses). /{act}/targetingsearch adds behaviours and
+    // demographics but matches loosely, so its rows go after the interests.
     const acc = await loadAccount(body.ad_account_id);
     const q = (body.q ?? '').trim().slice(0, 100);
     if (q.length < 2) return json({ options: [] });
-    // VERIFY: GET /{act_id}/targetingsearch?q= returns interests, behaviours and demographics.
-    const res = await graphGet<{ data?: unknown[] }>(`${acc.meta_account_id}/targetingsearch`, { q, limit: '40', locale: body.locale === 'ar' ? 'ar_AR' : 'en_US' }, token);
-    return json({ options: normalizeTargetingRows((res.data ?? []) as never[]) });
+    const locale = body.locale === 'ar' ? 'ar_AR' : 'en_US';
+    const [interests, broad] = await Promise.all([
+      // VERIFY: GET /search?type=adinterest&q= returns {id, name, path, audience_size_*} (no `type`).
+      graphGet<{ data?: Record<string, unknown>[] }>('search', { type: 'adinterest', q, limit: '25', locale }, token)
+        .then((r) => (r.data ?? []).map((row) => ({ ...row, type: 'interests' })))
+        .catch(() => []),
+      // VERIFY: GET /{act_id}/targetingsearch?q= returns interests, behaviours and demographics.
+      graphGet<{ data?: unknown[] }>(`${acc.meta_account_id}/targetingsearch`, { q, limit: '40', locale }, token)
+        .then((r) => r.data ?? [])
+        .catch(() => []),
+    ]);
+    const precise = normalizeTargetingRows(interests as never[]);
+    const all = normalizeTargetingRows([...interests, ...broad] as never[]); // dedupes broad rows already in `precise`
+    return json({ options: rankTargetingOptions(all, precise.length) });
   }
 
   if (body.action === 'targeting_suggestions') {
