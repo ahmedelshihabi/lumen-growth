@@ -31,7 +31,10 @@ export function isDemoMode(): boolean {
 }
 
 export const env = {
-  metaAppId: (import.meta.env.VITE_META_APP_ID as string | undefined) ?? '',
+  // Public Meta (Facebook) App ID for "Lumen Growth". It is a public client_id
+  // (it ships in the browser bundle), so a default here is safe; set
+  // VITE_META_APP_ID to override it per environment.
+  metaAppId: (import.meta.env.VITE_META_APP_ID as string | undefined) || '1612772370018192',
   paymobEnabled: (import.meta.env.VITE_PAYMOB_ENABLED as string | undefined) === 'true',
   instapayAddress: (import.meta.env.VITE_MANUAL_INSTAPAY as string | undefined) ?? '',
   walletNumber: (import.meta.env.VITE_MANUAL_WALLET as string | undefined) ?? '',
