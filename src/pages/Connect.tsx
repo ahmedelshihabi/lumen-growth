@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Card, PageHeader, cx } from '../components/ui';
+import { Card, ChannelBadge, PageHeader, cx } from '../components/ui';
 import { primaryBtn } from '../components/Gates';
 import { IconLink } from '../components/icons';
 import { env, supabase } from '../lib/supabase';
 import { navigate } from '../lib/router';
 import { formatDateTime } from '../lib/dates';
 import { metaOAuthDialogUrl } from '../../supabase/functions/_shared/meta.ts';
+import { GOOGLE_STATE_PREFIX, googleOAuthUrl } from '../../supabase/functions/_shared/google.ts';
 import { useSession } from '../state/SessionContext';
 import { useApp } from '../state/AppContext';
 import { useI18n } from '../i18n';
@@ -18,6 +19,7 @@ interface AccountRow {
   selected: boolean;
   last_synced_at: string | null;
   last_sync_error: string | null;
+  platform?: 'meta' | 'google' | 'tiktok';
 }
 
 interface ConnectionInfo {
@@ -26,6 +28,11 @@ interface ConnectionInfo {
 }
 
 const STATE_KEY = 'lumen.metaOAuthState';
+const GOOGLE_STATE_KEY = 'lumen.googleOAuthState';
+
+interface GoogleConnectionInfo {
+  google_email: string | null;
+}
 
 export default function Connect() {
   const { t } = useI18n();
@@ -35,6 +42,7 @@ export default function Connect() {
   const live = mode === 'live' && !!supabase;
 
   const [conn, setConn] = useState<ConnectionInfo | null>(null);
+  const [gconn, setGconn] = useState<GoogleConnectionInfo | null>(null);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [draft, setDraft] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<string | null>(null);
@@ -44,16 +52,19 @@ export default function Connect() {
 
   const load = useCallback(async () => {
     if (!live || !workspace) return;
-    const [c, a] = await Promise.all([
+    const [c, a, g] = await Promise.all([
       supabase!.rpc('get_meta_connection', { ws: workspace.id }),
       supabase!
         .from('ad_accounts')
-        .select('id, meta_account_id, name, currency, selected, last_synced_at, last_sync_error')
+        .select('id, meta_account_id, name, currency, selected, last_synced_at, last_sync_error, platform')
         .eq('workspace_id', workspace.id)
+        .order('platform')
         .order('name'),
+      supabase!.rpc('get_google_connection', { ws: workspace.id }),
     ]);
     const row = (c.data as ConnectionInfo[] | null)?.[0] ?? null;
     setConn(row);
+    setGconn((g.data as GoogleConnectionInfo[] | null)?.[0] ?? null);
     const rows = (a.data as AccountRow[] | null) ?? [];
     setAccounts(rows);
     setDraft(new Set(rows.filter((r) => r.selected).map((r) => r.id)));
@@ -93,15 +104,19 @@ export default function Connect() {
       return;
     }
     exchanged.current = true;
+    // Google's redirect carries state 'google:<nonce>'; Meta's is a bare nonce.
+    const isGoogle = !!state?.startsWith(GOOGLE_STATE_PREFIX);
+    const key = isGoogle ? GOOGLE_STATE_KEY : STATE_KEY;
     let expected: string | null = null;
     try {
-      expected = sessionStorage.getItem(STATE_KEY);
-      sessionStorage.removeItem(STATE_KEY);
+      expected = sessionStorage.getItem(key);
+      sessionStorage.removeItem(key);
     } catch {
       /* ignore */
     }
     navigate('/app/connect', { replace: true });
-    if (!expected || expected !== state) {
+    const received = isGoogle ? state!.slice(GOOGLE_STATE_PREFIX.length) : state;
+    if (!expected || expected !== received) {
       setError(t('connect.stateMismatch'));
       void load();
       return;
@@ -109,7 +124,9 @@ export default function Connect() {
     setBusy(true);
     setStatus(t('connect.exchanging'));
     void supabase!.functions
-      .invoke('meta-oauth-callback', { body: { code, redirect_uri: `${window.location.origin}/app/connect`, workspace_id: workspace.id } })
+      .invoke(isGoogle ? 'google-oauth-callback' : 'meta-oauth-callback', {
+        body: { code, redirect_uri: `${window.location.origin}/app/connect`, workspace_id: workspace.id },
+      })
       .then(async ({ error }) => {
         setBusy(false);
         setStatus(null);
@@ -127,6 +144,17 @@ export default function Connect() {
       /* ignore */
     }
     window.location.assign(metaOAuthDialogUrl(env.metaAppId, `${window.location.origin}/app/connect`, state));
+  };
+
+  const startGoogleOAuth = () => {
+    if (!env.googleClientId) return;
+    const state = crypto.randomUUID();
+    try {
+      sessionStorage.setItem(GOOGLE_STATE_KEY, state);
+    } catch {
+      /* ignore */
+    }
+    window.location.assign(googleOAuthUrl(env.googleClientId, `${window.location.origin}/app/connect`, state));
   };
 
   const max = ent.maxAdAccounts;
@@ -171,7 +199,13 @@ export default function Connect() {
     }
     setBusy(true);
     setStatus(t('connect.syncing'));
-    const { error } = await supabase!.functions.invoke('meta-sync', { body: { workspace_id: workspace?.id } });
+    const selected = accounts.filter((a) => a.selected);
+    const jobs: Promise<{ error: unknown }>[] = [];
+    if (selected.some((a) => (a.platform ?? 'meta') === 'meta')) jobs.push(supabase!.functions.invoke('meta-sync', { body: { workspace_id: workspace?.id } }));
+    if (selected.some((a) => a.platform === 'google')) jobs.push(supabase!.functions.invoke('google-sync', { body: { workspace_id: workspace?.id } }));
+    const results = await Promise.all(jobs);
+    const failed = results.find((r) => r.error)?.error as { message?: string } | undefined;
+    const error = failed ? { message: failed.message ?? String(failed) } : null;
     setBusy(false);
     setStatus(error ? null : t('connect.synced'));
     if (error) setError(error.message);
@@ -216,6 +250,27 @@ export default function Connect() {
         </div>
       </Card>
 
+      <Card className="mt-4">
+        <div className="flex flex-wrap items-center gap-4 px-4 py-4">
+          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#ea4335]/10 text-sm font-bold text-[#ea4335]">G</div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium">
+              {gconn ? t('connect.google.connectedAs', { name: gconn.google_email ?? 'Google' }) : t('connect.google.title')}
+            </div>
+            <div className="text-xs text-zinc-500 dark:text-zinc-400">{t('connect.google.subtitle')}</div>
+            {live && !env.googleClientId && <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">{t('connect.google.notConfigured')}</div>}
+          </div>
+          <button
+            type="button"
+            onClick={startGoogleOAuth}
+            disabled={!live || !env.googleClientId || busy}
+            className={cx(primaryBtn, 'bg-[#1a73e8] hover:bg-[#1765cc] disabled:cursor-not-allowed disabled:opacity-50')}
+          >
+            {gconn ? t('connect.reconnect') : t('connect.google.button')}
+          </button>
+        </div>
+      </Card>
+
       <Card
         className="mt-4"
         title={t('connect.accounts')}
@@ -233,7 +288,10 @@ export default function Connect() {
                   <label className={cx('flex items-center gap-3 px-4 py-3', blocked ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/40')}>
                     <input type="checkbox" className="h-4 w-4 accent-brand-600" checked={checked} disabled={blocked || busy} onChange={() => toggle(a.id)} />
                     <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{a.name}</span>
+                      <span className="flex items-center gap-2">
+                        <ChannelBadge channel={a.platform ?? 'meta'} />
+                        <span className="block truncate text-sm font-medium">{a.name}</span>
+                      </span>
                       <span className="block text-xs text-zinc-500 dark:text-zinc-400" dir="ltr">
                         {a.meta_account_id} · {a.currency}
                       </span>

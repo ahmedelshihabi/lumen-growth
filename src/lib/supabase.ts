@@ -35,6 +35,8 @@ export const env = {
   // (it ships in the browser bundle), so a default here is safe; set
   // VITE_META_APP_ID to override it per environment.
   metaAppId: (import.meta.env.VITE_META_APP_ID as string | undefined) || '1612772370018192',
+  // Google OAuth client id (public). Empty until the Google Ads connector is set up.
+  googleClientId: (import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined) ?? '',
   paymobEnabled: (import.meta.env.VITE_PAYMOB_ENABLED as string | undefined) === 'true',
   instapayAddress: (import.meta.env.VITE_MANUAL_INSTAPAY as string | undefined) ?? '',
   walletNumber: (import.meta.env.VITE_MANUAL_WALLET as string | undefined) ?? '',

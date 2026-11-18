@@ -30,3 +30,10 @@ verify_jwt = true
 
 [functions.meta-create-ad]
 verify_jwt = true
+
+# Google Ads (read-only). google-sync accepts a user JWT (checked in code) or x-cron-secret.
+[functions.google-oauth-callback]
+verify_jwt = true
+
+[functions.google-sync]
+verify_jwt = false

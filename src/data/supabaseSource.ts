@@ -5,7 +5,7 @@
  * the signed-in user's workspace; we also filter by workspace explicitly.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { AdAccount, Campaign, CampaignDailyMetric, CampaignStatus, Creative, CreativeDailyMetric, CreativeFormat, DateRange, ISODate } from './types';
+import type { AdAccount, Campaign, Channel, CampaignDailyMetric, CampaignStatus, Creative, CreativeDailyMetric, CreativeFormat, DateRange, ISODate } from './types';
 import type { DataSource } from './source';
 import type { TargetsByAccount } from '../rules/types';
 import { addDays, localToday } from '../lib/dates';
@@ -27,6 +27,9 @@ interface InsightRow {
   frequency: number | string;
   messaging_conversations: number | string | null;
 }
+
+/** ad_accounts/campaigns.platform -> UI channel (rows from before the column existed are Meta). */
+const toChannel = (p: string | null | undefined): Channel => (p === 'google' || p === 'tiktok' ? p : 'meta');
 
 const n = (v: number | string | null | undefined) => (v === null || v === undefined ? 0 : Number(v));
 
@@ -73,18 +76,18 @@ export class SupabaseDataSource implements DataSource {
   async getAccounts(): Promise<AdAccount[]> {
     const { data, error } = await this.db
       .from('ad_accounts')
-      .select('meta_account_id, name, currency, timezone')
+      .select('meta_account_id, name, currency, timezone, platform')
       .eq('workspace_id', this.workspaceId)
       .eq('selected', true)
       .order('name');
     if (error) throw error;
-    return (data ?? []).map((a) => ({ id: a.meta_account_id, name: a.name, channel: 'meta', currency: a.currency, timezone: a.timezone }));
+    return (data ?? []).map((a) => ({ id: a.meta_account_id, name: a.name, channel: toChannel(a.platform), currency: a.currency, timezone: a.timezone }));
   }
 
   async getCampaigns(): Promise<Campaign[]> {
     const [accounts, campaigns, budgets] = await Promise.all([
       this.accountMap(),
-      this.db.from('campaigns').select('meta_campaign_id, ad_account_id, name, objective, status, daily_budget, start_date').eq('workspace_id', this.workspaceId),
+      this.db.from('campaigns').select('meta_campaign_id, ad_account_id, name, objective, status, daily_budget, start_date, platform').eq('workspace_id', this.workspaceId),
       this.db.from('campaign_budgets').select('campaign_id, monthly_budget').eq('workspace_id', this.workspaceId),
     ]);
     if (campaigns.error) throw campaigns.error;
@@ -93,7 +96,7 @@ export class SupabaseDataSource implements DataSource {
     return (campaigns.data ?? []).map((c) => ({
       id: c.meta_campaign_id,
       accountId: accounts.get(c.ad_account_id) ?? c.ad_account_id,
-      channel: 'meta',
+      channel: toChannel(c.platform),
       name: c.name,
       objective: mapObjective(c.objective ?? undefined),
       status: mapStatus(c.status),

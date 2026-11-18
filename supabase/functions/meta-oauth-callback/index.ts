@@ -112,6 +112,7 @@ serve(async (req) => {
     .from('ad_accounts')
     .select('id, meta_account_id, name, currency, timezone, account_status, selected')
     .eq('workspace_id', workspaceId)
+    .eq('platform', 'meta')
     .order('name');
 
   return json({

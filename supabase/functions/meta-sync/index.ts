@@ -119,7 +119,7 @@ async function syncWorkspace(admin: SupabaseClient, workspaceId: string) {
   const limit = sub.plans.max_ad_accounts;
   const { data: accounts, error } = await admin
     .from('ad_accounts')
-    .select('id, meta_account_id, currency')
+    .select('id, meta_account_id, currency, platform')
     .eq('workspace_id', workspaceId)
     .eq('selected', true)
     .order('selected_at', { ascending: true })
@@ -127,7 +127,8 @@ async function syncWorkspace(admin: SupabaseClient, workspaceId: string) {
   if (error) throw error;
 
   const results: Record<string, unknown>[] = [];
-  for (const acc of (accounts ?? []) as AccountRow[]) {
+  // The plan limit counts every platform; only Meta accounts are synced here (google-sync does Google).
+  for (const acc of ((accounts ?? []) as (AccountRow & { platform?: string })[]).filter((a) => (a.platform ?? 'meta') === 'meta')) {
     try {
       const r = await syncAccount(admin, workspaceId, acc, conn.access_token as string);
       await admin.from('ad_accounts').update({ last_synced_at: new Date().toISOString(), last_sync_error: null }).eq('id', acc.id);

@@ -194,6 +194,43 @@ select cron.schedule('lumen-expire-subscriptions', '30 0 * * *', $$ select publi
 
 ---
 
+## 2.5) ربط جوجل Ads (قراءة بس)
+
+لومن بيقرا حملات جوجل Ads وأداءها اليومي (الصرف، الظهور، النقرات، التحويلات وقيمتها) ومش بيغيّر أي حاجة. محتاج ٣ حاجات: مشروع Google Cloud، و OAuth Client، و Developer Token من جوجل Ads.
+
+### 2.5.1 مشروع Google Cloud و OAuth
+1. افتح https://console.cloud.google.com واعمل مشروع جديد اسمه `Lumen Growth`.
+2. **APIs & Services → Library**: دوّر على **Google Ads API** واضغط **Enable**.
+3. **APIs & Services → OAuth consent screen** (أو **Google Auth Platform**):
+   - User type: **External**.
+   - اسم التطبيق `Lumen Growth`، وإيميل الدعم، واللوجو.
+   - روابط: Privacy `https://lumen-growth.vercel.app/legal/privacy.html` و Terms `https://lumen-growth.vercel.app/legal/terms.html`.
+   - Scopes: ضيف `https://www.googleapis.com/auth/adwords`.
+   - طول ما التطبيق **Testing** ضيف إيميلات العملاء الأوائل في **Test users** (لحد ١٠٠ مستخدم). النشر للكل (Publish) بيحتاج مراجعة من جوجل لأن scope الـ adwords حساس.
+4. **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - Application type: **Web application**.
+   - Authorized JavaScript origins: `https://lumen-growth.vercel.app` (ولما يبقى عندك دومين، ضيفه).
+   - Authorized redirect URIs: `https://lumen-growth.vercel.app/app/connect` بالظبط (لازم يطابق `APP_URL` + `/app/connect`).
+   - هتاخد **Client ID** و **Client Secret**.
+
+### 2.5.2 Developer Token من جوجل Ads
+1. لازم يكون عندك **حساب مدير (MCC)**: https://ads.google.com/home/tools/manager-accounts/ (مجاني). اربط حساباتك الإعلانية تحته لو حابب.
+2. من حساب الـ MCC: **Tools → API Center** (مركز API)، املى البيانات واقبل الشروط، هتاخد **Developer token** في حالة **Test**.
+3. توكن الـ Test بيشتغل على **حسابات تجريبية بس**. علشان يقرا حسابات حقيقية قدّم على **Basic access** من نفس الصفحة (جوجل بيراجعه في أيام لأسابيع، وبيسأل عن وصف الأداة: اكتب إنها لوحة تقارير وتنبيهات read-only للمعلنين).
+
+### 2.5.3 الإعدادات
+- **Supabase → Edge Functions → Secrets**:
+  - `GOOGLE_CLIENT_ID` و `GOOGLE_CLIENT_SECRET` من 2.5.1.
+  - `GOOGLE_ADS_DEVELOPER_TOKEN` من 2.5.2.
+  - `GOOGLE_ADS_LOGIN_CUSTOMER_ID` (اختياري): رقم الـ MCC من غير شَرط، لو الحسابات بتوصلها عن طريق حساب مدير.
+- **Vercel → Environment Variables**: `VITE_GOOGLE_CLIENT_ID` = نفس الـ Client ID (ده public عادي) وبعدين Redeploy.
+- قاعدة البيانات: شغّل `supabase/migrations/20261119000001_google_ads.sql` (موجود كمان في آخر `setup.sql`).
+- انشر الدوال: `supabase functions deploy google-oauth-callback` و `supabase functions deploy google-sync`.
+
+بعدها في صفحة **ربط ميتا** هتلاقي كارت **جوجل Ads** → «اربط جوجل Ads» → اختار الحسابات مع حسابات ميتا (الحد الأقصى في الباقة بيعد الاتنين مع بعض) → «زامن الآن».
+
+> ملاحظة: حسابات جوجل بتتخزن في نفس جدول الحسابات بـ id شكله `gads_1234567890`، والحملات `gads_<campaign id>`.
+
 ## 3) Paymob (الدفع الأونلاين)
 
 ### 3.1 فتح الحساب
