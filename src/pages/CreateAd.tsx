@@ -208,6 +208,8 @@ export default function CreateAd() {
   const [targetQuery, setTargetQuery] = useState('');
   const [targetResults, setTargetResults] = useState<TargetingOption[] | null>(null);
   const [targetSuggestions, setTargetSuggestions] = useState<TargetingOption[]>([]);
+  const [targetError, setTargetError] = useState<string | null>(null);
+  const [targetLoading, setTargetLoading] = useState(false);
   const picked = form.detailedTargeting ?? [];
   const isPicked = (o: TargetingItem) => picked.some((p) => p.id === o.id && p.type === o.type);
   const addTarget = (o: TargetingItem) => {
@@ -221,6 +223,8 @@ export default function CreateAd() {
     const q = targetQuery.trim();
     if (q.length < 2) {
       setTargetResults(null);
+      setTargetLoading(false);
+      setTargetError(null);
       return;
     }
     if (!live) {
@@ -230,18 +234,28 @@ export default function CreateAd() {
     }
     if (!workspace || !form.adAccountId) return;
     let alive = true;
+    setTargetLoading(true);
     const timer = window.setTimeout(() => {
       void supabase!.functions
         .invoke('meta-create-ad', { body: { action: 'targeting_search', workspace_id: workspace.id, ad_account_id: form.adAccountId, q, locale: lang } })
-        .then(({ data, error }) => {
-          if (alive) setTargetResults(error ? [] : (data as { options: TargetingOption[] }).options);
+        .then(async ({ data, error }) => {
+          if (!alive) return;
+          setTargetLoading(false);
+          if (error) {
+            const e = await invokeError(error);
+            setTargetError(errKey(e.code) ? t(errKey(e.code)!) : e.message);
+            setTargetResults([]);
+          } else {
+            setTargetError(null);
+            setTargetResults((data as { options: TargetingOption[] }).options);
+          }
         });
     }, 350);
     return () => {
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [targetQuery, live, workspace, form.adAccountId, lang]);
+  }, [targetQuery, live, workspace, form.adAccountId, lang, t]);
 
   const pickedKey = picked.map((p) => `${p.type}:${p.id}`).join(',');
   useEffect(() => {
@@ -587,7 +601,11 @@ export default function CreateAd() {
                   placeholder={t('createAd.targetingPlaceholder')}
                   disabled={picked.length >= MAX_TARGETING_ITEMS}
                 />
-                {targetResults !== null && (
+                {targetLoading && targetResults === null && (
+                  <div className="mt-1 px-1 text-xs text-zinc-500">{t('common.loading')}</div>
+                )}
+                {targetError && <div className="mt-1 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-500/10 dark:text-red-300">{targetError}</div>}
+                {targetResults !== null && !targetError && (
                   <div className="mt-1 max-h-72 overflow-y-auto rounded-lg border border-zinc-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
                     {targetResults.length === 0 ? (
                       <div className="px-3 py-2.5 text-sm text-zinc-500">{t('createAd.targetingNone')}</div>
