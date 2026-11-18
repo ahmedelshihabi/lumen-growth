@@ -51,6 +51,7 @@ const HEALTH_STYLE: Record<Health, { dot: string; pill: string }> = {
   good: { dot: 'bg-emerald-500', pill: 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20' },
   warning: { dot: 'bg-amber-500', pill: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20' },
   critical: { dot: 'bg-red-500', pill: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/20' },
+  unrated: { dot: 'bg-sky-400', pill: 'bg-sky-50 text-sky-700 ring-sky-600/20 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-400/20' },
   inactive: { dot: 'bg-zinc-400', pill: 'bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-zinc-800 dark:text-zinc-400 dark:ring-zinc-600/30' },
 };
 
@@ -66,7 +67,7 @@ export function HealthPill({ health }: { health: Health }) {
 }
 
 /** Text colour for a metric cell by health. */
-export function healthText(h: Exclude<Health, 'inactive'>): string {
+export function healthText(h: Exclude<Health, 'inactive' | 'unrated'>): string {
   return h === 'good'
     ? 'text-emerald-700 dark:text-emerald-400'
     : h === 'warning'

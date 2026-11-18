@@ -1,7 +1,9 @@
 import { useMemo } from 'react';
 import { Card, ChannelBadge, PageHeader, StatCard, cx } from '../components/ui';
 import { useLoadedApp } from '../state/AppContext';
-import { computePacing, type PacingResult, type PacingStatus } from '../rules/pacing';
+import { computePacing, pacingAdvice, type PacingAdvice, type PacingResult, type PacingStatus } from '../rules/pacing';
+import { summarizeCampaigns } from '../rules/summary';
+import { rangeEnding } from '../lib/metrics';
 import { fmtMoney } from '../lib/format';
 import { formatMonth } from '../lib/dates';
 import { CHANNEL_LABEL, channelColor } from '../lib/colors';
@@ -30,18 +32,27 @@ function PacingBar({ p, color }: { p: { monthlyBudget: number; mtdSpend: number;
 }
 
 export default function Pacing() {
-  const { data, theme } = useLoadedApp();
+  const { data, theme, targets } = useLoadedApp();
   const { t } = useI18n();
   // Campaigns without a monthly plan (Meta has none) cannot be paced: they are listed as missing.
   const missing = data.campaigns.filter((c) => !(c.monthlyBudget > 0)).length;
 
+  // Same evaluation as Recommendations (last 14 days), so both pages give the same advice.
+  const verdicts = useMemo(
+    () => new Map(summarizeCampaigns(data.campaigns, data.campaignDaily, rangeEnding(data.asOf, 14), targets).map((s) => [s.campaign.id, s])),
+    [data, targets],
+  );
   const rows = useMemo(
     () =>
       data.campaigns
         .filter((c) => c.monthlyBudget > 0)
-        .map((c) => ({ campaign: c, p: computePacing(c, data.campaignDaily, data.asOf) }))
+        .map((c) => {
+          const p = computePacing(c, data.campaignDaily, data.asOf);
+          const s = verdicts.get(c.id);
+          return { campaign: c, p, advice: pacingAdvice(p, s?.quality.sufficient ? s.verdict : null) };
+        })
         .sort((a, b) => Math.abs(b.p.pacing - 1) - Math.abs(a.p.pacing - 1)),
-    [data],
+    [data, verdicts],
   );
 
   const byChannel = useMemo(() => {
@@ -131,8 +142,8 @@ export default function Pacing() {
 
       <Card className="mt-4" title={t('pacing.byCampaign')}>
         <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {rows.map(({ campaign, p }) => (
-            <PacingRow key={campaign.id} campaign={campaign} p={p} color={channelColor(theme, campaign.channel)} />
+          {rows.map(({ campaign, p, advice }) => (
+            <PacingRow key={campaign.id} campaign={campaign} p={p} advice={advice} color={channelColor(theme, campaign.channel)} />
           ))}
         </ul>
       </Card>
@@ -140,7 +151,7 @@ export default function Pacing() {
   );
 }
 
-function PacingRow({ campaign, p, color }: { campaign: Campaign; p: PacingResult; color: string }) {
+function PacingRow({ campaign, p, advice, color }: { campaign: Campaign; p: PacingResult; advice: PacingAdvice; color: string }) {
   const { t } = useI18n();
   const s = STATUS[p.status];
   const diff = p.projected - p.monthlyBudget;
@@ -164,12 +175,12 @@ function PacingRow({ campaign, p, color }: { campaign: Campaign; p: PacingResult
       </div>
       <div className="flex items-center gap-3 md:flex-col md:items-end md:gap-1">
         <span className={cx('inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset', s.cls)}>
-          {t(`pacing.${p.status}`)} {p.status !== 'paused' && `${Math.round(p.pacing * 100)}%`}
+          {t(`pacing.label.${p.status}`, { pct: `${Math.round(p.pacing * 100)}%` })}
         </span>
-        {(p.status === 'over' || p.status === 'under') && (
+        {advice !== 'none' && (
           <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
             {diff > 0 ? '+' : ''}
-            {fmtMoney(diff)} · {t('pacing.aimFor', { v: fmtMoney(p.recommendedDaily) })}
+            {fmtMoney(diff)} · {t(`pacing.advice.${advice}`, { v: fmtMoney(p.recommendedDaily), plan: fmtMoney(p.projected) })}
           </span>
         )}
       </div>

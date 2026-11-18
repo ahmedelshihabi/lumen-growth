@@ -4,12 +4,20 @@ import { IconCheck } from '../components/icons';
 import { useLoadedApp } from '../state/AppContext';
 import { generateRecommendations, type Priority } from '../rules/recommendations';
 import { fmtMoney } from '../lib/format';
+import { formatShortDate } from '../lib/dates';
+import type { Confidence } from '../rules/evaluate';
 import { useI18n } from '../i18n';
 
 const PRIORITY_STYLE: Record<Priority, string> = {
   high: 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/30',
   medium: 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/30',
   low: 'bg-zinc-100 text-zinc-700 ring-zinc-500/20 dark:bg-zinc-800 dark:text-zinc-300 dark:ring-zinc-600/30',
+};
+
+const CONFIDENCE_STYLE: Record<Confidence, string> = {
+  high: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300',
+  medium: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+  low: 'bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300',
 };
 
 const IMPACT_STYLE = {
@@ -72,6 +80,15 @@ export default function Recommendations() {
                   </div>
                   <h3 dir="auto" className={cx('mt-1.5 text-[15px] font-semibold leading-snug', isDone && 'line-through')}>{t(r.titleMsg.key, r.titleMsg.vars)}</h3>
                   <p dir="auto" className="mt-1 text-sm text-zinc-600 dark:text-zinc-300">{t(r.rationaleMsg.key, r.rationaleMsg.vars)}</p>
+                  {r.warningMsg && (
+                    <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
+                      ⚠️ {t(r.warningMsg.key, r.warningMsg.vars)}
+                    </p>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    <span className={cx('rounded px-1.5 py-0.5 font-medium', CONFIDENCE_STYLE[r.confidence])}>{t(`recs.confidence.${r.confidence}`)}</span>
+                    <span>{t('recs.basis', { days: r.window.activeDays, start: formatShortDate(r.window.start), end: formatShortDate(r.window.end) })}</span>
+                  </div>
                 </div>
                 <div className="flex items-center justify-between gap-4 sm:w-48 sm:flex-col sm:items-end sm:justify-start">
                   <div className="sm:text-end">

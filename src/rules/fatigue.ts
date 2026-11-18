@@ -1,8 +1,17 @@
 import type { CreativeDailyMetric, ISODate } from '../data/types';
 import { aggregate, rangeEnding, filterRange, safeDiv } from '../lib/metrics';
 import { addDays } from '../lib/dates';
+import type { AccountTarget } from './types';
 
-export type FatigueStatus = 'fatigued' | 'watch' | 'healthy' | 'insufficient';
+/**
+ * poor        - delivers far worse than the account goal (CPA >= 2x target, or spend with no result).
+ *               Separate from fatigue: a bad ad can be fresh, a fatigued ad can still be profitable.
+ * fatigued    - frequency rising while engagement or efficiency falls (CTR, hook rate or CPA).
+ * watch       - the same signals, weaker.
+ * healthy     - none of the above.
+ * insufficient- too few impressions in either window to judge.
+ */
+export type FatigueStatus = 'poor' | 'fatigued' | 'watch' | 'healthy' | 'insufficient';
 
 export interface FatigueResult {
   status: FatigueStatus;
@@ -13,6 +22,14 @@ export interface FatigueResult {
   /** relative change, e.g. 0.2 = +20% */
   frequencyChange: number;
   ctrChange: number;
+  recentCpa: number;
+  priorCpa: number;
+  /** relative CPA change; 0 when either window has no conversions */
+  cpaChange: number;
+  /** 3-second views / impressions; null for non-video creatives */
+  recentHook: number | null;
+  priorHook: number | null;
+  hookChange: number | null;
 }
 
 export interface FatigueConfig {
@@ -20,8 +37,17 @@ export interface FatigueConfig {
   minImpressions: number;
   fatiguedFreqRise: number;
   fatiguedCtrDrop: number;
+  fatiguedHookDrop: number;
+  fatiguedCpaRise: number;
   watchFreqRise: number;
   watchCtrDrop: number;
+  watchHookDrop: number;
+  watchCpaRise: number;
+  /** "poor": recent CPA at least this multiple of the target CPA (needs >= poorMinConversions). */
+  poorCpaMultiple: number;
+  poorMinConversions: number;
+  /** "poor": spend of at least this many target CPAs with zero conversions. */
+  poorNoConversionSpendMultiple: number;
 }
 
 export const DEFAULT_FATIGUE_CONFIG: FatigueConfig = {
@@ -29,8 +55,16 @@ export const DEFAULT_FATIGUE_CONFIG: FatigueConfig = {
   minImpressions: 2000,
   fatiguedFreqRise: 0.15,
   fatiguedCtrDrop: 0.15,
-  watchFreqRise: 0.08,
-  watchCtrDrop: 0.08,
+  fatiguedHookDrop: 0.15,
+  fatiguedCpaRise: 0.25,
+  // The old watch band (8% / 8%) almost never fired because the fatigued band swallowed it.
+  watchFreqRise: 0.05,
+  watchCtrDrop: 0.05,
+  watchHookDrop: 0.05,
+  watchCpaRise: 0.1,
+  poorCpaMultiple: 2,
+  poorMinConversions: 3,
+  poorNoConversionSpendMultiple: 2,
 };
 
 function weightedFrequency(rows: readonly CreativeDailyMetric[]): number {
@@ -43,14 +77,17 @@ function weightedFrequency(rows: readonly CreativeDailyMetric[]): number {
   return safeDiv(s, w);
 }
 
+const rel = (now: number, before: number) => (before ? now / before - 1 : 0);
+
 /**
- * Creative fatigue = frequency rising while CTR falls, comparing the last
- * `windowDays` to the window before it. `rows` must belong to one creative.
+ * Compare the last `windowDays` to the window before it. `rows` must belong to one creative.
+ * Pass the account `target` to also detect "poor" performers.
  */
 export function detectFatigue(
   rows: readonly CreativeDailyMetric[],
   asOf: ISODate,
   config: FatigueConfig = DEFAULT_FATIGUE_CONFIG,
+  target?: AccountTarget,
 ): FatigueResult {
   const recentRange = rangeEnding(asOf, config.windowDays);
   const priorRange = rangeEnding(addDays(asOf, -config.windowDays), config.windowDays);
@@ -60,17 +97,33 @@ export function detectFatigue(
   const prior = aggregate(priorRows);
   const recentFrequency = weightedFrequency(recentRows);
   const priorFrequency = weightedFrequency(priorRows);
-  const frequencyChange = priorFrequency ? recentFrequency / priorFrequency - 1 : 0;
-  const ctrChange = prior.ctr ? recent.ctr / prior.ctr - 1 : 0;
+  const frequencyChange = rel(recentFrequency, priorFrequency);
+  const ctrChange = rel(recent.ctr, prior.ctr);
+  const cpaChange = recent.conversions > 0 && prior.conversions > 0 ? rel(recent.cpa, prior.cpa) : 0;
+
+  const views = (rs: readonly CreativeDailyMetric[]) => rs.reduce((s, r) => s + r.videoViews3s, 0);
+  const isVideo = views(recentRows) + views(priorRows) > 0;
+  const recentHook = isVideo ? safeDiv(views(recentRows), recent.impressions) : null;
+  const priorHook = isVideo ? safeDiv(views(priorRows), prior.impressions) : null;
+  const hookChange = recentHook !== null && priorHook ? rel(recentHook, priorHook) : null;
 
   let status: FatigueStatus = 'healthy';
-  if (recent.impressions < config.minImpressions || prior.impressions < config.minImpressions) {
-    status = 'insufficient';
-  } else if (frequencyChange >= config.fatiguedFreqRise && ctrChange <= -config.fatiguedCtrDrop) {
+  const enough = recent.impressions >= config.minImpressions && prior.impressions >= config.minImpressions;
+  const poor =
+    !!target &&
+    target.targetCpa > 0 &&
+    recent.impressions >= config.minImpressions &&
+    ((recent.conversions >= config.poorMinConversions && recent.cpa >= target.targetCpa * config.poorCpaMultiple) ||
+      (recent.conversions === 0 && recent.spend >= target.targetCpa * config.poorNoConversionSpendMultiple));
+  const declining = (ctr: number, hook: number, cpa: number) =>
+    ctrChange <= -ctr || (hookChange !== null && hookChange <= -hook) || cpaChange >= cpa;
+
+  if (poor) status = 'poor';
+  else if (!enough) status = 'insufficient';
+  else if (frequencyChange >= config.fatiguedFreqRise && declining(config.fatiguedCtrDrop, config.fatiguedHookDrop, config.fatiguedCpaRise))
     status = 'fatigued';
-  } else if (frequencyChange >= config.watchFreqRise && ctrChange <= -config.watchCtrDrop) {
+  else if (frequencyChange >= config.watchFreqRise && declining(config.watchCtrDrop, config.watchHookDrop, config.watchCpaRise))
     status = 'watch';
-  }
 
   return {
     status,
@@ -80,5 +133,11 @@ export function detectFatigue(
     priorFrequency,
     frequencyChange,
     ctrChange,
+    recentCpa: recent.cpa,
+    priorCpa: prior.cpa,
+    cpaChange,
+    recentHook,
+    priorHook,
+    hookChange,
   };
 }

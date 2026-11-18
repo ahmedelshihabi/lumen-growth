@@ -86,11 +86,11 @@ export default function Alerts() {
       <Card className="mt-4" title={t('alerts.activeRules')}>
         <ul className="grid gap-px overflow-hidden rounded-b-xl bg-zinc-100 text-sm dark:bg-zinc-800 sm:grid-cols-2">
           {[
-            [t('anomaly.cpa_spike'), t('alerts.rule.cpa', { pct: cfg.cpaSpikePct * 100, min: cfg.minConversions, days: cfg.lookbackDays })],
+            [t('anomaly.cpa_spike'), t('alerts.rule.cpa', { pct: cfg.cpaSpikePct * 100, min: cfg.minConversions, recent: cfg.cpaRecentDays, base: cfg.cpaBaselineDays })],
             [t('anomaly.roas_drop'), t('alerts.rule.roas', { recent: cfg.roasRecentDays, pct: cfg.roasDropPct * 100, base: cfg.roasBaselineDays })],
             [t('anomaly.spend_stopped'), t('alerts.rule.stopped')],
             [t('anomaly.account_stopped'), t('alerts.rule.account')],
-            [t('anomaly.high_frequency'), t('alerts.rule.freq', { max: cfg.frequencyMax })],
+            [t('anomaly.high_frequency'), t('alerts.rule.freq', { pro: cfg.freqCapProspecting, rtg: cfg.freqCapRetargeting })],
           ].map(([name, desc]) => (
             <li key={name} className="bg-white p-4 dark:bg-zinc-900">
               <div className="font-medium">{name}</div>

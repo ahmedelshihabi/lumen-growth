@@ -12,7 +12,7 @@ import type { DictKey } from '../i18n/dict';
 
 type SortKey = 'name' | 'status' | 'budget' | 'spend' | 'revenue' | 'roas' | 'cpa' | 'ctr' | 'frequency' | 'health';
 
-const HEALTH_ORDER: Record<Health, number> = { critical: 0, warning: 1, good: 2, inactive: 3 };
+const HEALTH_ORDER: Record<Health, number> = { critical: 0, warning: 1, unrated: 2, good: 3, inactive: 4 };
 
 const value = (s: CampaignSummary, k: SortKey): number | string => {
   switch (k) {

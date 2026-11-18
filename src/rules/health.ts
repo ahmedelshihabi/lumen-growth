@@ -1,6 +1,9 @@
 import type { AccountTarget } from './types';
+import { DEFAULT_EVAL_CONFIG, healthFromRatio, lacksValueTracking, performanceRatio, type Health } from './evaluate';
+import { safeDiv } from '../lib/metrics';
 
-export type Health = 'good' | 'warning' | 'critical' | 'inactive';
+export type { Health } from './evaluate';
+export { lacksValueTracking } from './evaluate';
 
 export interface HealthInput {
   spend: number;
@@ -12,43 +15,31 @@ export interface HealthInput {
 }
 
 /**
- * True when a campaign gets results but reports no purchase value: click-to-WhatsApp /
- * Messenger campaigns, or a pixel that fires Purchase without a value. ROAS is meaningless
- * for these (it reads 0), so they are judged by CPA / cost per conversation instead and are
- * never told to pause or give up budget because of ROAS.
+ * Health of a SALES campaign against its account goals (thin wrapper over evaluate.ts,
+ * kept for callers that only have totals). For anything objective-aware use the
+ * `health` field of summarizeCampaigns(), which is the source of truth.
  */
-export function lacksValueTracking(m: HealthInput): boolean {
-  return m.spend > 0 && m.revenue !== undefined && m.revenue <= 0 && (m.conversions > 0 || (m.conversations ?? 0) > 0);
-}
-
-/**
- * Score a campaign against its account goals. The score is the worse of
- * ROAS-vs-target and CPA-vs-target (1.0 = exactly on goal).
- * >= 1.0 good, >= 0.8 warning (within 20%), otherwise critical.
- */
-export function healthScore(m: HealthInput, target: AccountTarget): number {
-  if (m.spend <= 0) return NaN;
-  const roasScore = target.targetRoas > 0 ? m.roas / target.targetRoas : 1;
-  const cpaScore = m.conversions > 0 && target.targetCpa > 0 ? target.targetCpa / m.cpa : 0;
-  return Math.min(roasScore, cpaScore);
-}
-
 export function campaignHealth(m: HealthInput, target: AccountTarget): Health {
-  if (m.spend <= 0) return 'inactive';
-  if (lacksValueTracking(m)) {
-    // No purchase value: judge by CPA alone; conversation-only campaigns have no goal to compare to.
-    if (m.conversions <= 0 || target.targetCpa <= 0) return 'warning';
-    const c = target.targetCpa / m.cpa;
-    return c >= 1 ? 'good' : c >= 0.8 ? 'warning' : 'critical';
-  }
-  const s = healthScore(m, target);
-  if (s >= 1) return 'good';
-  if (s >= 0.8) return 'warning';
-  return 'critical';
+  const revenue = m.revenue ?? m.roas * m.spend;
+  const t = {
+    spend: m.spend,
+    revenue,
+    impressions: 0,
+    clicks: 0,
+    conversions: m.conversions,
+    roas: m.roas,
+    cpa: m.cpa || safeDiv(m.spend, m.conversions),
+    ctr: 0,
+    cpm: 0,
+    conversations: m.conversations ?? 0,
+    costPerConversation: 0,
+  };
+  const kind = lacksValueTracking({ ...t, revenue: m.revenue }) ? 'leads' : 'sales';
+  return healthFromRatio(performanceRatio(kind, t, target, null, DEFAULT_EVAL_CONFIG), m.spend, false);
 }
 
 /** Colour a single metric vs its goal. `higherIsBetter` for ROAS/CTR, false for CPA. */
-export function metricHealth(value: number, goal: number, higherIsBetter: boolean): Exclude<Health, 'inactive'> {
+export function metricHealth(value: number, goal: number, higherIsBetter: boolean): Exclude<Health, 'inactive' | 'unrated'> {
   if (!goal || !value) return higherIsBetter ? 'critical' : 'good';
   const ratio = higherIsBetter ? value / goal : goal / value;
   if (ratio >= 1) return 'good';

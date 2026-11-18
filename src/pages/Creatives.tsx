@@ -13,6 +13,7 @@ import { targetFor } from '../rules/types';
 import type { Channel, Creative } from '../data/types';
 
 const FATIGUE: Record<FatigueStatus, { cls: string }> = {
+  poor: { cls: 'bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900' },
   fatigued: { cls: 'bg-red-600 text-white' },
   watch: { cls: 'bg-amber-400 text-amber-950' },
   healthy: { cls: 'bg-emerald-600 text-white' },
@@ -20,7 +21,7 @@ const FATIGUE: Record<FatigueStatus, { cls: string }> = {
 };
 
 type SortKey = 'spend' | 'cpa' | 'ctr' | 'hook' | 'fatigue';
-const FATIGUE_RANK: Record<FatigueStatus, number> = { fatigued: 0, watch: 1, healthy: 2, insufficient: 3 };
+const FATIGUE_RANK: Record<FatigueStatus, number> = { poor: 0, fatigued: 1, watch: 2, healthy: 3, insufficient: 4 };
 
 function Tile({ c }: { c: Creative }) {
   return (
@@ -76,7 +77,8 @@ export default function Creatives() {
         campaign,
         totals: t,
         hookRate: c.format === 'video' ? safeDiv(views, t.impressions) : null,
-        fatigue: detectFatigue(all, data.asOf),
+        // CPA-based "poor" only for conversion campaigns, never awareness/traffic.
+        fatigue: detectFatigue(all, data.asOf, undefined, campaign.objective === 'SALES' || campaign.objective === 'LEADS' ? targetFor(targets, campaign.accountId) : undefined),
         target: targetFor(targets, campaign.accountId),
         spark,
       };
@@ -112,7 +114,7 @@ export default function Creatives() {
     <>
       <PageHeader
         title={t('creatives.title')}
-        subtitle={`${t('creatives.subtitle', { n: cards.filter((c) => c.totals.spend > 0).length, days: rangeDays })} · ${t('fatigue.fatigued')} ${counts.fatigued ?? 0} · ${t('fatigue.watch')} ${counts.watch ?? 0}`}
+        subtitle={`${t('creatives.subtitle', { n: cards.filter((c) => c.totals.spend > 0).length, days: rangeDays })} · ${t('fatigue.poor')} ${counts.poor ?? 0} · ${t('fatigue.fatigued')} ${counts.fatigued ?? 0} · ${t('fatigue.watch')} ${counts.watch ?? 0}`}
         actions={<RangePicker />}
       />
 
@@ -134,6 +136,7 @@ export default function Creatives() {
           onChange={setFatigue}
           options={[
             { value: 'all', label: t('creatives.anyFatigue') },
+            { value: 'poor', label: t('fatigue.poor') },
             { value: 'fatigued', label: t('fatigue.fatigued') },
             { value: 'watch', label: t('fatigue.watch') },
             { value: 'healthy', label: t('fatigue.healthy') },

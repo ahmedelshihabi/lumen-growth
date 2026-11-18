@@ -1,12 +1,12 @@
-import type { Channel, CreativeDailyMetric } from '../data/types';
+import type { Channel, CreativeDailyMetric, DateRange } from '../data/types';
 import { groupBy, rangeEnding } from '../lib/metrics';
 import { fmtMoney } from '../lib/format';
 import { detectAnomalies, DEFAULT_ANOMALY_CONFIG } from './anomalies';
 import { detectFatigue } from './fatigue';
-import { computePacing } from './pacing';
+import { computePacing, pacingAdvice } from './pacing';
 import { summarizeCampaigns, type CampaignSummary } from './summary';
-import { lacksValueTracking } from './health';
-import type { RulesInput } from './types';
+import { DEFAULT_EVAL_CONFIG, costPerResult, looksSeasonal, type Confidence, type EvalConfig } from './evaluate';
+import { targetFor, type RulesInput } from './types';
 import { msg, renderEn, type Msg } from './msg';
 
 export type RecommendationType =
@@ -30,13 +30,18 @@ export interface Recommendation {
   rationale: string;
   titleMsg: Msg;
   rationaleMsg: Msg;
+  /** Extra caution shown with the recommendation (e.g. "this looks like an ended sale"). */
+  warningMsg?: Msg;
   impact: {
     kind: 'revenue' | 'savings' | 'protect';
-    /** Estimated monthly value in account currency. */
+    /** Estimated monthly value in account currency. 0 when the data is too thin to estimate. */
     monthly: number;
     label: string;
     labelMsg: Msg;
   };
+  /** How much to trust it, and the data it is based on. */
+  confidence: Confidence;
+  window: DateRange & { activeDays: number };
   campaignIds: string[];
   creativeIds: string[];
   channels: Channel[];
@@ -45,35 +50,31 @@ export interface Recommendation {
 export interface RecommendationConfig {
   windowDays: number;
   minSpend: number;
-  loserRoasRatio: number;
-  winnerRoasRatio: number;
-  pauseRoasRatio: number;
+  /** Share of the daily budget moved away from a "cut" campaign. */
+  cutShare: number;
   /** share of returns kept when scaling (diminishing returns) */
   scaleEfficiency: number;
-  frequencyMax: number;
   /** How far back to look for paused winners worth relaunching. */
   relaunchLookbackDays: number;
-  relaunchMinConversions: number;
+  eval: EvalConfig;
 }
 
 export const DEFAULT_RECOMMENDATION_CONFIG: RecommendationConfig = {
   windowDays: 14,
   minSpend: 500,
-  loserRoasRatio: 0.6,
-  winnerRoasRatio: 1.2,
-  pauseRoasRatio: 0.25,
+  cutShare: 0.2,
   scaleEfficiency: 0.7,
-  frequencyMax: 4,
   relaunchLookbackDays: 30,
-  relaunchMinConversions: 5,
+  eval: DEFAULT_EVAL_CONFIG,
 };
 
 const DAYS_PER_MONTH = 30;
-// Uses the display currency of the loaded accounts (USD in demo, EGP etc. for real Meta accounts).
 const money = (n: number) => fmtMoney(Math.round(n));
 const x = (n: number) => n.toFixed(1);
+const pct = (n: number) => `${Math.round(n * 100)}%`;
 
-function priorityFor(monthly: number, forceHigh = false): Priority {
+function priorityFor(monthly: number, confidence: Confidence, forceHigh = false): Priority {
+  if (confidence === 'low') return 'low';
   if (forceHigh || monthly >= 5000) return 'high';
   if (monthly >= 1000) return 'medium';
   return 'low';
@@ -90,50 +91,71 @@ const texts = (titleMsg: Msg, rationaleMsg: Msg) => ({
 
 const impact = (kind: Recommendation['impact']['kind'], monthly: number, labelMsg: Msg): Recommendation['impact'] => ({
   kind,
-  monthly,
+  monthly: Math.max(0, monthly),
   labelMsg,
   label: renderEn(labelMsg),
 });
 
+const basis = (s: CampaignSummary) => ({
+  confidence: s.quality.confidence,
+  window: { ...s.range, activeDays: s.quality.activeDays },
+});
+
+/** "ROAS 0.8x" for sales, "cost per result EGP 120" otherwise. */
+const perfLabel = (s: CampaignSummary) =>
+  s.kind === 'sales' ? `ROAS ${s.totals.roas.toFixed(2)}x` : `${money(s.kind === 'leads' ? costPerResult(s.totals) : s.totals.cpm)}`;
+
 /**
  * Deterministic rules engine. Same input -> same recommendations, in the same order.
+ * Every decision goes through evaluate.ts (one ladder, objective-aware, minimum data).
  */
 export function generateRecommendations(
   input: RulesInput,
   config: RecommendationConfig = DEFAULT_RECOMMENDATION_CONFIG,
 ): Recommendation[] {
   const { campaigns, campaignDaily, creatives, creativeDaily, asOf, targets } = input;
+  const cfg = config.eval;
   const range = rangeEnding(asOf, config.windowDays);
-  const summaries = summarizeCampaigns(campaigns, campaignDaily, range, targets);
-  const perDay = (n: number) => n / config.windowDays;
+  const summaries = summarizeCampaigns(campaigns, campaignDaily, range, targets, cfg);
+  const perDay = (n: number, s: CampaignSummary) => n / Math.max(1, s.quality.activeDays);
   const recs: Recommendation[] = [];
   const handled = new Set<string>();
 
-  // Campaigns without purchase value (click-to-WhatsApp etc.) read ROAS 0; never pause or
-  // drain them because of ROAS.
-  const eligible = summaries.filter(
-    (s) => s.campaign.status !== 'PAUSED' && s.totals.spend >= config.minSpend && !lacksValueTracking(s.totals),
+  // Judged campaigns: running, enough spend AND enough data, with a goal to compare to.
+  // Awareness is never paused or cut on performance (it is not bought for ROAS).
+  const judged = summaries.filter(
+    (s) =>
+      s.campaign.status !== 'PAUSED' &&
+      s.totals.spend >= config.minSpend &&
+      s.quality.sufficient &&
+      s.verdict !== null &&
+      s.kind !== 'awareness',
   );
 
-  // --- Pause money-losers far below goal --------------------------------------
-  for (const s of eligible) {
-    if (s.totals.roas >= s.target.targetRoas * config.pauseRoasRatio) continue;
-    const monthlySpend = perDay(s.totals.spend) * DAYS_PER_MONTH;
-    const monthlyRevenue = perDay(s.totals.revenue) * DAYS_PER_MONTH;
+  // --- Ladder step 1: pause (< 50% of goal) ------------------------------------
+  for (const s of judged) {
+    if (s.verdict !== 'pause') continue;
+    const monthlySpend = perDay(s.totals.spend, s) * DAYS_PER_MONTH;
+    const monthlyLoss = monthlySpend - perDay(s.totals.revenue, s) * DAYS_PER_MONTH;
+    const sales = s.kind === 'sales';
     recs.push({
       id: `pause_campaign:${s.campaign.id}`,
       type: 'pause_campaign',
-      priority: priorityFor(monthlySpend - monthlyRevenue),
+      priority: priorityFor(sales ? monthlyLoss : monthlySpend, s.quality.confidence),
       ...texts(
-        msg('recMsg.pause.title', { name: s.campaign.name, roas: s.totals.roas.toFixed(2) }),
-        msg('recMsg.pause.rationale', {
-          pct: `${Math.round((s.totals.roas / s.target.targetRoas) * 100)}%`,
-          goal: `${s.target.targetRoas.toFixed(1)}x`,
-          days: config.windowDays,
+        sales
+          ? msg('recMsg.pause.title', { name: s.campaign.name, roas: s.totals.roas.toFixed(2) })
+          : msg('recMsg.pauseCost.title', { name: s.campaign.name, cost: perfLabel(s) }),
+        msg('recMsg.pause.ladder', {
+          pct: pct(s.ratio!),
+          days: s.quality.activeDays,
           amount: money(monthlySpend),
         }),
       ),
-      impact: impact('savings', monthlySpend - monthlyRevenue, msg('recMsg.label.netLoss')),
+      impact: sales
+        ? impact('savings', monthlyLoss, msg('recMsg.label.netLoss'))
+        : impact('savings', monthlySpend * (1 - s.ratio!), msg('recMsg.label.wasted')),
+      ...basis(s),
       campaignIds: [s.campaign.id],
       creativeIds: [],
       channels: [s.campaign.channel],
@@ -141,196 +163,159 @@ export function generateRecommendations(
     handled.add(s.campaign.id);
   }
 
-  // --- Shift budget from losers to winners ------------------------------------
-  const winners = eligible
-    .filter(
-      (s) =>
-        s.campaign.status === 'ACTIVE' &&
-        s.totals.roas >= s.target.targetRoas * config.winnerRoasRatio &&
-        s.frequency <= config.frequencyMax,
-    )
-    .sort((a, b) => b.totals.roas - a.totals.roas || a.campaign.id.localeCompare(b.campaign.id));
-  const losers = eligible
-    .filter((s) => !handled.has(s.campaign.id) && s.totals.roas < s.target.targetRoas * config.loserRoasRatio)
-    .sort((a, b) => a.totals.roas - b.totals.roas || a.campaign.id.localeCompare(b.campaign.id));
-
+  // --- Ladder step 2: cut (50-80% of goal) -> shift to a winner, or lower -----
+  const winners = judged
+    .filter((s) => s.campaign.status === 'ACTIVE' && s.verdict === 'scale' && s.kind === 'sales' && !s.frequencyOverCap)
+    .sort((a, b) => (b.ratio ?? 0) - (a.ratio ?? 0) || a.campaign.id.localeCompare(b.campaign.id));
   const used = new Set<string>();
-  for (const loser of losers) {
-    if (!winners.length) break;
-    const pick = (pool: CampaignSummary[]) => pool.find((w) => !used.has(w.campaign.id)) ?? pool[0];
-    const sameChannel = winners.filter((w) => w.campaign.channel === loser.campaign.channel);
-    const winner = sameChannel.length ? pick(sameChannel) : pick(winners);
-    used.add(winner.campaign.id);
-    const share = loser.totals.roas < 1 ? 0.15 : 0.1;
-    const shiftPerDay = loser.campaign.dailyBudget * share;
+  for (const loser of judged.filter((s) => s.verdict === 'cut' && !handled.has(s.campaign.id))) {
+    const shiftPerDay = loser.campaign.dailyBudget * config.cutShare;
     const monthly = shiftPerDay * DAYS_PER_MONTH;
-    const gain = monthly * (winner.totals.roas * config.scaleEfficiency - loser.totals.roas);
-    if (gain <= 0) continue;
-    recs.push({
-      id: `shift_budget:${loser.campaign.id}:${winner.campaign.id}`,
-      type: 'shift_budget',
-      priority: priorityFor(gain),
-      ...texts(
-        msg('recMsg.shift.title', {
-          pct: `${Math.round(share * 100)}%`,
-          from: loser.campaign.name,
-          fromRoas: loser.totals.roas.toFixed(1),
-          to: winner.campaign.name,
-          toRoas: winner.totals.roas.toFixed(1),
-        }),
-        msg('recMsg.shift.rationale', {
-          amount: money(shiftPerDay),
-          eff: `${Math.round(config.scaleEfficiency * 100)}%`,
-        }),
-      ),
-      impact: impact('revenue', gain, msg('recMsg.label.extraRevenue')),
-      campaignIds: [loser.campaign.id, winner.campaign.id],
-      creativeIds: [],
-      channels: [...new Set([loser.campaign.channel, winner.campaign.channel])],
-    });
+    const sameChannel = winners.filter((w) => w.campaign.channel === loser.campaign.channel);
+    const pool = sameChannel.length ? sameChannel : winners;
+    const winner = pool.find((w) => !used.has(w.campaign.id)) ?? pool[0];
+    const gain = winner && loser.kind === 'sales' ? monthly * (winner.totals.roas * config.scaleEfficiency - loser.totals.roas) : 0;
+    if (winner && gain > 0) {
+      used.add(winner.campaign.id);
+      recs.push({
+        id: `shift_budget:${loser.campaign.id}:${winner.campaign.id}`,
+        type: 'shift_budget',
+        priority: priorityFor(gain, loser.quality.confidence),
+        ...texts(
+          msg('recMsg.shift.title', {
+            pct: pct(config.cutShare),
+            from: loser.campaign.name,
+            fromRoas: loser.totals.roas.toFixed(1),
+            to: winner.campaign.name,
+            toRoas: winner.totals.roas.toFixed(1),
+          }),
+          msg('recMsg.shift.ladder', {
+            amount: money(shiftPerDay),
+            pct: pct(loser.ratio!),
+            eff: pct(config.scaleEfficiency),
+          }),
+        ),
+        impact: impact('revenue', gain, msg('recMsg.label.extraRevenue')),
+        ...basis(loser),
+        campaignIds: [loser.campaign.id, winner.campaign.id],
+        creativeIds: [],
+        channels: [...new Set([loser.campaign.channel, winner.campaign.channel])],
+      });
+    } else {
+      recs.push({
+        id: `lower_budget:${loser.campaign.id}`,
+        type: 'lower_budget',
+        priority: priorityFor(monthly * (1 - loser.ratio!), loser.quality.confidence),
+        ...texts(
+          msg('recMsg.cut.title', { name: loser.campaign.name, pct: pct(config.cutShare), amount: money(loser.campaign.dailyBudget * (1 - config.cutShare)) }),
+          msg('recMsg.cut.rationale', { pct: pct(loser.ratio!), days: loser.quality.activeDays, perf: perfLabel(loser) }),
+        ),
+        impact: impact('savings', monthly * (1 - loser.ratio!), msg('recMsg.label.wasted')),
+        ...basis(loser),
+        campaignIds: [loser.campaign.id],
+        creativeIds: [],
+        channels: [loser.campaign.channel],
+      });
+    }
     handled.add(loser.campaign.id);
   }
 
-  // --- Delivery stopped & saturated audiences (from anomaly rules) ------------
-  const anomalies = detectAnomalies(
-    { campaigns, campaignDaily, asOf },
-    { ...DEFAULT_ANOMALY_CONFIG, frequencyMax: config.frequencyMax },
-  );
-  const byId = new Map(summaries.map((s) => [s.campaign.id, s]));
-  for (const a of anomalies) {
-    const s = byId.get(a.campaignId);
-    if (!s) continue;
-    if (a.type === 'spend_stopped') {
-      const atRisk = a.baseline * Math.max(s.totals.roas, 0.5) * DAYS_PER_MONTH;
-      recs.push({
-        id: `fix_delivery:${a.campaignId}`,
-        type: 'fix_delivery',
-        priority: 'high',
-        ...texts(
-          msg('recMsg.delivery.title', { name: a.campaignName }),
-          a.titleMsg.key === 'anomalyMsg.stopped.titleOne'
-            ? msg('recMsg.delivery.rationaleOne')
-            : msg('recMsg.delivery.rationale', a.titleMsg.vars),
-        ),
-        impact: impact('protect', atRisk, msg('recMsg.label.atRisk')),
-        campaignIds: [a.campaignId],
-        creativeIds: [],
-        channels: [a.channel],
-      });
-      handled.add(a.campaignId);
-    } else if (a.type === 'high_frequency') {
-      const protect = perDay(s.totals.revenue) * DAYS_PER_MONTH * 0.1;
-      recs.push({
-        id: `expand_audience:${a.campaignId}`,
-        type: 'expand_audience',
-        priority: priorityFor(protect),
-        ...texts(
-          msg('recMsg.audience.title', { name: a.campaignName, freq: x(a.current) }),
-          msg('recMsg.audience.rationale', { max: config.frequencyMax }),
-        ),
-        impact: impact('protect', protect, msg('recMsg.label.protected')),
-        campaignIds: [a.campaignId],
-        creativeIds: [],
-        channels: [a.channel],
-      });
-    }
-  }
-
-  // --- Relaunch paused winners -------------------------------------------------
-  // A campaign someone paused that was beating its goals is the cheapest growth there is:
-  // proven audience, proven creative.
-  const lookback = rangeEnding(asOf, config.relaunchLookbackDays);
-  for (const s of summarizeCampaigns(campaigns, campaignDaily, lookback, targets)) {
-    if (s.campaign.status !== 'PAUSED') continue;
-    if (s.totals.spend < config.minSpend || s.totals.conversions < config.relaunchMinConversions) continue;
-    if (lacksValueTracking(s.totals) || s.health !== 'good') continue;
-    const activeDays = new Set(
-      campaignDaily
-        .filter((r) => r.campaignId === s.campaign.id && r.spend >= 1 && r.date >= lookback.start && r.date <= lookback.end)
-        .map((r) => r.date),
-    ).size;
-    if (activeDays === 0) continue;
-    const dailySpend = s.totals.spend / activeDays;
-    const monthly = (s.totals.revenue / activeDays) * DAYS_PER_MONTH * config.scaleEfficiency;
+  // --- Frequency over the cap for its audience type ----------------------------
+  for (const s of summaries) {
+    if (s.campaign.status === 'PAUSED' || !s.frequencyOverCap || s.totals.spend < config.minSpend) continue;
+    const protect = perDay(s.totals.revenue, s) * DAYS_PER_MONTH * 0.1;
     recs.push({
-      id: `relaunch_campaign:${s.campaign.id}`,
-      type: 'relaunch_campaign',
-      priority: priorityFor(monthly),
+      id: `expand_audience:${s.campaign.id}`,
+      type: 'expand_audience',
+      priority: priorityFor(protect, s.quality.confidence),
       ...texts(
-        msg('recMsg.relaunch.title', { name: s.campaign.name, roas: `${s.totals.roas.toFixed(2)}x` }),
-        msg('recMsg.relaunch.rationale', {
-          days: activeDays,
-          spend: money(s.totals.spend),
-          roas: `${s.totals.roas.toFixed(2)}x`,
-          goal: `${s.target.targetRoas.toFixed(1)}x`,
-          cpa: money(s.totals.cpa),
-          daily: money(dailySpend),
-        }),
+        msg('recMsg.audience.title', { name: s.campaign.name, freq: x(s.frequency) }),
+        msg(s.audience === 'retargeting' ? 'recMsg.audience.rationaleRtg' : 'recMsg.audience.rationale', { max: s.frequencyCap }),
       ),
-      impact: impact('revenue', monthly, msg('recMsg.label.relaunch')),
+      impact: impact('protect', protect, msg('recMsg.label.protected')),
+      ...basis(s),
       campaignIds: [s.campaign.id],
       creativeIds: [],
       channels: [s.campaign.channel],
     });
   }
 
-  // --- Budget pacing ----------------------------------------------------------
+  // --- Delivery stopped (from the anomaly rules) ----------------------------------
+  const byId = new Map(summaries.map((s) => [s.campaign.id, s]));
+  for (const a of detectAnomalies({ campaigns, campaignDaily, asOf }, DEFAULT_ANOMALY_CONFIG)) {
+    if (a.type !== 'spend_stopped') continue;
+    const s = byId.get(a.campaignId);
+    if (!s) continue;
+    const atRisk = a.baseline * Math.max(s.totals.roas, 0.5) * DAYS_PER_MONTH;
+    recs.push({
+      id: `fix_delivery:${a.campaignId}`,
+      type: 'fix_delivery',
+      priority: 'high',
+      ...texts(
+        msg('recMsg.delivery.title', { name: a.campaignName }),
+        a.titleMsg.key === 'anomalyMsg.stopped.titleOne' ? msg('recMsg.delivery.rationaleOne') : msg('recMsg.delivery.rationale', a.titleMsg.vars),
+      ),
+      impact: impact('protect', atRisk, msg('recMsg.label.atRisk')),
+      confidence: 'high',
+      window: { ...s.range, activeDays: s.quality.activeDays },
+      campaignIds: [a.campaignId],
+      creativeIds: [],
+      channels: [a.channel],
+    });
+    handled.add(a.campaignId);
+  }
+
+  // --- Pacing, performance-aware (same function as the Pacing page) -------------
   for (const s of summaries) {
     if (handled.has(s.campaign.id) || s.campaign.status !== 'ACTIVE') continue;
     const p = computePacing(s.campaign, campaignDaily, asOf);
-    // No monthly plan entered (Meta has no monthly budgets): nothing to pace against.
-    if (p.daysRemaining <= 0 || p.monthlyBudget <= 0) continue;
-    if (p.status === 'over') {
+    const advice = pacingAdvice(p, s.quality.sufficient ? s.verdict : null);
+    if (advice === 'raise_plan') {
       const overage = p.projected - p.monthlyBudget;
-      if (s.health === 'good') {
-        const gain = overage * s.totals.roas * config.scaleEfficiency;
-        recs.push({
-          id: `raise_budget:${s.campaign.id}`,
-          type: 'raise_budget',
-          priority: priorityFor(gain),
-          ...texts(
-            msg('recMsg.raiseMonthly.title', { name: s.campaign.name, amount: money(overage) }),
-            msg('recMsg.raiseMonthly.rationale', {
-              pct: `${Math.round((p.pacing - 1) * 100)}%`,
-              roas: `${s.totals.roas.toFixed(1)}x`,
-            }),
-          ),
-          impact: impact('revenue', gain, msg('recMsg.label.revenueKept')),
-          campaignIds: [s.campaign.id],
-          creativeIds: [],
-          channels: [s.campaign.channel],
-        });
-      } else {
-        recs.push({
-          id: `lower_budget:${s.campaign.id}`,
-          type: 'lower_budget',
-          priority: priorityFor(overage),
-          ...texts(
-            msg('recMsg.lower.title', { name: s.campaign.name, amount: money(p.recommendedDaily) }),
-            msg('recMsg.lower.rationale', {
-              amount: money(overage),
-              roas: `${s.totals.roas.toFixed(1)}x`,
-              goal: `${s.target.targetRoas.toFixed(1)}x`,
-            }),
-          ),
-          impact: impact('savings', overage, msg('recMsg.label.overspend')),
-          campaignIds: [s.campaign.id],
-          creativeIds: [],
-          channels: [s.campaign.channel],
-        });
-      }
-    } else if (p.status === 'under' && s.health === 'good') {
+      const gain = overage * s.totals.roas * config.scaleEfficiency;
+      recs.push({
+        id: `raise_budget:${s.campaign.id}`,
+        type: 'raise_budget',
+        priority: priorityFor(gain, s.quality.confidence),
+        ...texts(
+          msg('recMsg.raiseMonthly.title', { name: s.campaign.name, amount: money(overage) }),
+          msg('recMsg.raiseMonthly.rationale', { pct: pct(p.pacing - 1), roas: `${s.totals.roas.toFixed(1)}x` }),
+        ),
+        impact: impact('revenue', gain, msg('recMsg.label.revenueKept')),
+        ...basis(s),
+        campaignIds: [s.campaign.id],
+        creativeIds: [],
+        channels: [s.campaign.channel],
+      });
+    } else if (advice === 'reduce') {
+      const overage = p.projected - p.monthlyBudget;
+      recs.push({
+        id: `lower_budget:${s.campaign.id}`,
+        type: 'lower_budget',
+        priority: priorityFor(overage, s.quality.confidence),
+        ...texts(
+          msg('recMsg.lower.title', { name: s.campaign.name, amount: money(p.recommendedDaily) }),
+          msg('recMsg.lower.ladder', { amount: money(overage), pct: s.ratio === null ? '-' : pct(s.ratio) }),
+        ),
+        impact: impact('savings', overage, msg('recMsg.label.overspend')),
+        ...basis(s),
+        campaignIds: [s.campaign.id],
+        creativeIds: [],
+        channels: [s.campaign.channel],
+      });
+    } else if (advice === 'increase') {
       const headroom = p.monthlyBudget - p.projected;
       const gain = headroom * s.totals.roas * config.scaleEfficiency;
       recs.push({
         id: `raise_budget:${s.campaign.id}`,
         type: 'raise_budget',
-        priority: priorityFor(gain),
+        priority: priorityFor(gain, s.quality.confidence),
         ...texts(
           msg('recMsg.raiseDaily.title', { name: s.campaign.name, amount: money(p.recommendedDaily) }),
-          msg('recMsg.raiseDaily.rationale', { pct: `${Math.round(p.pacing * 100)}%`, amount: money(headroom) }),
+          msg('recMsg.raiseDaily.rationale', { pct: pct(p.pacing), amount: money(headroom) }),
         ),
         impact: impact('revenue', gain, msg('recMsg.label.extraRevenue')),
+        ...basis(s),
         campaignIds: [s.campaign.id],
         creativeIds: [],
         channels: [s.campaign.channel],
@@ -338,22 +323,91 @@ export function generateRecommendations(
     }
   }
 
-  // --- Creative fatigue -------------------------------------------------------
+  // --- Relaunch paused winners --------------------------------------------------
+  // Only with enough data (>= minActiveDays of delivery and >= minConversions), and with a
+  // warning + halved estimate when the name suggests a promotion that may have ended.
+  const lookback = rangeEnding(asOf, config.relaunchLookbackDays);
+  for (const s of summarizeCampaigns(campaigns, campaignDaily, lookback, targets, cfg)) {
+    if (s.campaign.status !== 'PAUSED' || s.kind !== 'sales') continue;
+    if (s.totals.spend < config.minSpend || !s.quality.sufficient || s.verdict !== 'scale') continue;
+    const seasonal = looksSeasonal(s.campaign.name);
+    const confidence: Confidence = seasonal ? 'low' : s.quality.confidence;
+    const dailySpend = s.totals.spend / s.quality.activeDays;
+    const monthly = (s.totals.revenue / s.quality.activeDays) * DAYS_PER_MONTH * config.scaleEfficiency * (seasonal ? 0.5 : 1);
+    recs.push({
+      id: `relaunch_campaign:${s.campaign.id}`,
+      type: 'relaunch_campaign',
+      priority: priorityFor(monthly, confidence),
+      ...texts(
+        msg('recMsg.relaunch.title', { name: s.campaign.name, roas: `${s.totals.roas.toFixed(2)}x` }),
+        msg('recMsg.relaunch.rationale', {
+          days: s.quality.activeDays,
+          spend: money(s.totals.spend),
+          roas: `${s.totals.roas.toFixed(2)}x`,
+          goal: `${s.target.targetRoas.toFixed(1)}x`,
+          cpa: money(s.totals.cpa),
+          daily: money(dailySpend),
+        }),
+      ),
+      warningMsg: seasonal ? msg('recMsg.relaunch.seasonal') : undefined,
+      impact: impact('revenue', monthly, msg(seasonal ? 'recMsg.label.relaunchSeasonal' : 'recMsg.label.relaunch')),
+      confidence,
+      window: { ...s.range, activeDays: s.quality.activeDays },
+      campaignIds: [s.campaign.id],
+      creativeIds: [],
+      channels: [s.campaign.channel],
+    });
+  }
+
+  // --- Creatives: poor performers and fatigue ----------------------------------
   const creativeRows = groupBy<CreativeDailyMetric>(creativeDaily, (r) => r.creativeId);
   const campaignById = new Map(campaigns.map((c) => [c.id, c]));
+  const creativeWindow = rangeEnding(asOf, 14);
   for (const cr of creatives) {
     const camp = campaignById.get(cr.campaignId);
     if (!camp || camp.status === 'PAUSED') continue;
     const rows = creativeRows[cr.id] ?? [];
-    const f = detectFatigue(rows, asOf);
-    if (f.status !== 'fatigued') continue;
+    const target = targetFor(targets, camp.accountId);
+    // "Poor" is a CPA judgement: only for campaigns bought for conversions (never awareness/traffic).
+    const judgeOnCpa = camp.objective === 'SALES' || camp.objective === 'LEADS';
+    const f = detectFatigue(rows, asOf, undefined, judgeOnCpa ? target : undefined);
+    if (f.status !== 'fatigued' && f.status !== 'poor') continue;
     const last7 = rows.filter((r) => r.date > rangeEnding(asOf, 8).start);
+    const activeDays = new Set(rows.filter((r) => r.spend >= 1 && r.date >= creativeWindow.start).map((r) => r.date)).size;
+    const confidence: Confidence = activeDays >= 14 ? 'high' : activeDays >= 7 ? 'medium' : 'low';
+    const window = { ...creativeWindow, activeDays };
+    if (f.status === 'poor') {
+      const spend7 = last7.reduce((sum, r) => sum + r.spend, 0);
+      const revenue7 = last7.reduce((sum, r) => sum + r.revenue, 0);
+      const saved = Math.max(0, ((spend7 - revenue7) / 7) * DAYS_PER_MONTH);
+      recs.push({
+        id: `refresh_creative:${cr.id}`,
+        type: 'refresh_creative',
+        priority: priorityFor(saved, confidence),
+        ...texts(
+          msg('recMsg.creativePoor.title', { name: cr.name }),
+          msg('recMsg.creativePoor.rationale', {
+            cpa: f.recentCpa > 0 ? money(f.recentCpa) : '-',
+            goal: money(target.targetCpa),
+            campaign: camp.name,
+          }),
+        ),
+        impact: impact('savings', saved, msg('recMsg.label.wasted')),
+        confidence,
+        window,
+        campaignIds: [cr.campaignId],
+        creativeIds: [cr.id],
+        channels: [cr.channel],
+      });
+      continue;
+    }
     const revenue7 = last7.reduce((sum, r) => sum + r.revenue, 0);
-    const recovered = (revenue7 / 7) * DAYS_PER_MONTH * Math.min(0.5, Math.abs(f.ctrChange));
+    const drop = Math.max(Math.abs(Math.min(0, f.ctrChange)), Math.abs(Math.min(0, f.hookChange ?? 0)), Math.max(0, f.cpaChange));
+    const recovered = (revenue7 / 7) * DAYS_PER_MONTH * Math.min(0.5, drop);
     recs.push({
       id: `refresh_creative:${cr.id}`,
       type: 'refresh_creative',
-      priority: priorityFor(recovered),
+      priority: priorityFor(recovered, confidence),
       ...texts(
         msg('recMsg.creative.title', { name: cr.name }),
         msg('recMsg.creative.rationale', {
@@ -363,6 +417,8 @@ export function generateRecommendations(
         }),
       ),
       impact: impact('revenue', recovered, msg('recMsg.label.recovered')),
+      confidence,
+      window,
       campaignIds: [cr.campaignId],
       creativeIds: [cr.id],
       channels: [cr.channel],

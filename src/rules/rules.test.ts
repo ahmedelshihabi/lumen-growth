@@ -8,6 +8,7 @@ import { computePacing } from './pacing';
 import { generateRecommendations } from './recommendations';
 import { generateDataset } from '../data/mock';
 import { DEFAULT_TARGETS, deriveTargets } from './targets';
+import { summarizeCampaigns } from './summary';
 import { DICTS } from '../i18n/dict';
 
 const AS_OF = '2026-03-20';
@@ -54,13 +55,18 @@ function series(
 }
 
 describe('detectAnomalies', () => {
-  it('flags a CPA spike above 30% day over day', () => {
-    const daily = series('a', 21, (k) => (k === 0 ? { conversions: 6, revenue: 180 } : {}));
+  it('flags a CPA spike: last 3 days vs the 11 before, both windows >= 10 conversions', () => {
+    const daily = series('a', 21, (k) => (k < 3 ? { conversions: 6, revenue: 180 } : {}));
     const out = detectAnomalies({ campaigns: [campaign('a')], campaignDaily: daily, asOf: AS_OF });
     const spike = out.find((a) => a.type === 'cpa_spike');
     expect(spike).toBeDefined();
     expect(spike!.date).toBe(AS_OF);
     expect(spike!.severity).toBe('high'); // CPA 10 -> 16.67 = +67%
+  });
+
+  it('ignores a one-day CPA blip (day-over-day is noise)', () => {
+    const daily = series('a', 21, (k) => (k === 0 ? { conversions: 4, revenue: 120 } : {}));
+    expect(detectAnomalies({ campaigns: [campaign('a')], campaignDaily: daily, asOf: AS_OF }).filter((a) => a.type === 'cpa_spike')).toEqual([]);
   });
 
   it('ignores a 20% CPA move and stable campaigns', () => {
@@ -146,7 +152,7 @@ describe('generateRecommendations', () => {
   it('shifts budget from a loser to a winner with an estimated impact', () => {
     const campaigns = [campaign('x', { name: 'Loser' }), campaign('y', { name: 'Winner' })];
     const daily = [
-      ...series('x', 30, () => ({ revenue: 80, conversions: 1 })), // ROAS 0.8
+      ...series('x', 30, () => ({ revenue: 160, conversions: 3 })), // ROAS 1.6 = 64% of goal -> cut band
       ...series('y', 30, () => ({ revenue: 340, conversions: 12 })), // ROAS 3.4
     ];
     const recs = generateRecommendations({
@@ -158,9 +164,11 @@ describe('generateRecommendations', () => {
       targets: { acc: { targetCpa: 40, targetRoas: 2.5 } },
     });
     const shift = recs.find((r) => r.type === 'shift_budget');
-    expect(shift?.title).toBe('Shift 15% budget from Loser (ROAS 0.8) to Winner (ROAS 3.4)');
-    // $15/day * 30 * (3.4 * 0.7 - 0.8)
-    expect(shift?.impact.monthly).toBeCloseTo(15 * 30 * (3.4 * 0.7 - 0.8));
+    expect(shift?.title).toBe('Shift 20% budget from Loser (ROAS 1.6) to Winner (ROAS 3.4)');
+    // $20/day * 30 * (3.4 * 0.7 - 1.6)
+    expect(shift?.impact.monthly).toBeCloseTo(20 * 30 * (3.4 * 0.7 - 1.6));
+    expect(shift?.confidence).toBe('high');
+    expect(shift?.window.activeDays).toBe(14);
   });
 
   it('is deterministic on the seeded mock dataset and covers the key rule types', () => {
@@ -269,7 +277,7 @@ describe('expert-feedback rules (live account review)', () => {
     const recs = generateRecommendations({
       campaigns: [whatsapp, campaign('good', { dailyBudget: 1000 })],
       campaignDaily: [
-        ...series('wa', 21, () => ({ spend: 1700, conversions: 1, revenue: 0, conversations: 40 })),
+        ...series('wa', 21, () => ({ spend: 1700, conversions: 0, revenue: 0, conversations: 40 })),
         ...series('good', 21, () => ({ spend: 1000, conversions: 3, revenue: 4000 })),
       ],
       creatives: [],
@@ -278,5 +286,68 @@ describe('expert-feedback rules (live account review)', () => {
       targets: { acc: egp },
     });
     expect(recs.some((r) => r.campaignIds.includes('wa') && (r.type === 'pause_campaign' || r.type === 'shift_budget'))).toBe(false);
+  });
+});
+
+describe('QA pass: one evaluation, one ladder (items 10-17)', () => {
+  const tgt = { acc: { targetCpa: 40, targetRoas: 2.5 } };
+  const run = (campaigns: Campaign[], campaignDaily: CampaignDailyMetric[]) =>
+    generateRecommendations({ campaigns, campaignDaily, creatives: [], creativeDaily: [], asOf: AS_OF, targets: tgt });
+
+  it('ladder: < 50% of goal -> pause, 50-80% -> cut, never both thresholds for similar campaigns', () => {
+    const recs = run(
+      [campaign('p', { name: 'P' }), campaign('c', { name: 'C' })],
+      [
+        ...series('p', 30, () => ({ revenue: 100, conversions: 3 })), // ROAS 1.0 = 40% -> pause
+        ...series('c', 30, () => ({ revenue: 175, conversions: 3 })), // ROAS 1.75 = 70% -> cut
+      ],
+    );
+    expect(recs.find((r) => r.campaignIds[0] === 'p')?.type).toBe('pause_campaign');
+    expect(recs.find((r) => r.campaignIds[0] === 'c')?.type).toBe('lower_budget');
+  });
+
+  it('never pauses an awareness campaign because of ROAS', () => {
+    const recs = run(
+      [campaign('yt', { name: 'YouTube | Awareness', objective: 'AWARENESS' })],
+      series('yt', 30, () => ({ revenue: 55, conversions: 1 })), // ROAS 0.55
+    );
+    expect(recs.some((r) => r.campaignIds.includes('yt') && (r.type === 'pause_campaign' || r.type === 'shift_budget' || r.type === 'lower_budget'))).toBe(false);
+  });
+
+  it('pacing and recommendations agree: an over-pacing winner gets "raise the plan", not "reduce"', () => {
+    const c = campaign('brand', { name: 'Search | Brand', monthlyBudget: 1500 }); // spending 100/day >> plan
+    const recs = run([c], series('brand', 30, () => ({ revenue: 710, conversions: 20 }))); // ROAS 7.1
+    const r = recs.find((x) => x.campaignIds[0] === 'brand');
+    expect(r?.type).toBe('raise_budget');
+    expect(r?.title).toMatch(/^Raise the monthly budget/);
+  });
+
+  it('no relaunch recommendation from 4 days of data, and a seasonal warning when there is enough', () => {
+    const short = run([campaign('s', { name: 'Spring Sale', status: 'PAUSED' })], series('s', 25, (k) => (k < 5 || k > 8 ? null : { revenue: 900, conversions: 12 })));
+    expect(short.some((r) => r.type === 'relaunch_campaign')).toBe(false);
+    const long = run([campaign('s', { name: 'Spring Sale', status: 'PAUSED' })], series('s', 25, (k) => (k < 3 ? null : { revenue: 900, conversions: 12 })));
+    const rel = long.find((r) => r.type === 'relaunch_campaign');
+    expect(rel?.warningMsg?.key).toBe('recMsg.relaunch.seasonal');
+    expect(rel?.confidence).toBe('low');
+    expect(rel?.priority).toBe('low');
+  });
+
+  it('frequency caps depend on the audience: retargeting at 5.1 is fine, prospecting at 5.1 is not, and health agrees', () => {
+    const rtg = campaign('r', { name: 'Retargeting | DPA 7d Viewers' });
+    const pro = campaign('q', { name: 'Prospecting | Broad' });
+    const daily = [...series('r', 21, () => ({ frequency: 5.1, revenue: 400 })), ...series('q', 21, () => ({ frequency: 5.1, revenue: 400 }))];
+    const alerts = detectAnomalies({ campaigns: [rtg, pro], campaignDaily: daily, asOf: AS_OF }).filter((a) => a.type === 'high_frequency');
+    expect(alerts.map((a) => a.campaignId)).toEqual(['q']);
+    const sums = summarizeCampaigns([rtg, pro], daily, { start: addDays(AS_OF, -13), end: AS_OF }, tgt);
+    expect(sums.find((s) => s.campaign.id === 'q')?.health).toBe('warning'); // over cap -> not "on target"
+    expect(sums.find((s) => s.campaign.id === 'r')?.health).toBe('good');
+  });
+
+  it('marks a creative with CPA >= 2x target as "poor", separate from fatigue', () => {
+    const rows: CreativeDailyMetric[] = Array.from({ length: 14 }, (_, i) => ({
+      date: addDays(AS_OF, -13 + i), creativeId: 'cr', campaignId: 'a', spend: 100, impressions: 5000, clicks: 60, conversions: 1, revenue: 50, videoViews3s: 0, frequency: 1.5,
+    }));
+    expect(detectFatigue(rows, AS_OF, undefined, { targetCpa: 40, targetRoas: 2.5 }).status).toBe('poor');
+    expect(detectFatigue(rows, AS_OF).status).toBe('healthy'); // without a goal it can't be judged poor
   });
 });

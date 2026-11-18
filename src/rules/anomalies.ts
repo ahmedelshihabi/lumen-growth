@@ -1,6 +1,7 @@
 import type { Campaign, CampaignDailyMetric, Channel, ISODate } from '../data/types';
 import { addDays } from '../lib/dates';
-import { safeDiv } from '../lib/metrics';
+import { aggregate, safeDiv } from '../lib/metrics';
+import { audienceType, campaignKind } from './evaluate';
 import { fmtMoney, fmtMoney2 } from '../lib/format';
 import { msg, renderEn, type Msg } from './msg';
 
@@ -25,30 +26,38 @@ export interface Anomaly {
 }
 
 export interface AnomalyConfig {
-  /** CPA day-over-day increase that triggers an alert (0.3 = +30%). */
+  /** CPA increase (recent window vs baseline window) that triggers an alert (0.3 = +30%). */
   cpaSpikePct: number;
+  /** CPA: last N days... */
+  cpaRecentDays: number;
+  /** ...vs the M days before them. Day-over-day CPA is noise. */
+  cpaBaselineDays: number;
   /** Recent-vs-baseline ROAS decrease that triggers an alert. */
   roasDropPct: number;
   roasRecentDays: number;
   roasBaselineDays: number;
-  frequencyMax: number;
-  /** Ignore CPA swings when the comparison day had fewer conversions than this. */
+  /** Frequency caps by audience type (see evaluate.ts). */
+  freqCapProspecting: number;
+  freqCapRetargeting: number;
+  /** Both CPA windows need at least this many conversions. */
   minConversions: number;
   /** Minimum daily spend for a day to count as "spending". */
   minSpend: number;
-  /** How many days back CPA spikes are reported. */
-  lookbackDays: number;
+  /** Rules switched off by the user. */
+  disabled?: AnomalyType[];
 }
 
 export const DEFAULT_ANOMALY_CONFIG: AnomalyConfig = {
   cpaSpikePct: 0.3,
+  cpaRecentDays: 3,
+  cpaBaselineDays: 11,
   roasDropPct: 0.25,
   roasRecentDays: 3,
   roasBaselineDays: 14,
-  frequencyMax: 4,
-  minConversions: 5,
+  freqCapProspecting: 3.5,
+  freqCapRetargeting: 7,
+  minConversions: 10,
   minSpend: 50,
-  lookbackDays: 7,
 };
 
 export interface AnomalyInput {
@@ -63,6 +72,17 @@ const SEVERITY_RANK: Record<Severity, number> = { critical: 0, high: 1, medium: 
 
 type DayRow = Pick<CampaignDailyMetric, 'spend' | 'revenue' | 'conversions' | 'frequency' | 'impressions'>;
 const EMPTY: DayRow = { spend: 0, revenue: 0, conversions: 0, frequency: 0, impressions: 0 };
+
+function sumWindowFull(byDate: Map<string, DayRow>, end: ISODate, days: number) {
+  let spend = 0;
+  let conversions = 0;
+  for (let i = 0; i < days; i++) {
+    const r = byDate.get(addDays(end, -i)) ?? EMPTY;
+    spend += r.spend;
+    conversions += r.conversions;
+  }
+  return { spend, conversions };
+}
 
 function sumWindow(byDate: Map<string, DayRow>, end: ISODate, days: number) {
   let spend = 0;
@@ -104,40 +124,45 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
   }
 
   const out: Anomaly[] = [];
+  const on = (t: AnomalyType) => !config.disabled?.includes(t);
   for (const c of campaigns) {
     if (c.status === 'PAUSED') continue;
     const days = byCampaign.get(c.id) ?? new Map<string, DayRow>();
     const base = { campaignId: c.id, campaignName: c.name, channel: c.channel };
 
-    // 1. CPA spike, day over day
-    for (let i = 0; i < config.lookbackDays; i++) {
-      const date = addDays(asOf, -i);
-      const today = days.get(date);
-      const prev = days.get(addDays(date, -1));
-      if (!today || !prev) continue;
-      if (today.spend < config.minSpend || prev.conversions < config.minConversions) continue;
-      const prevCpa = prev.spend / prev.conversions;
-      const cpa = today.conversions > 0 ? today.spend / today.conversions : Infinity;
-      const change = cpa / prevCpa - 1;
+    // 1. CPA spike: last `cpaRecentDays` vs the `cpaBaselineDays` before (sales / leads only).
+    const kind = campaignKind(c, aggregate([...days.values()] as never[]));
+    const recentW = sumWindowFull(days, asOf, config.cpaRecentDays);
+    const baseW = sumWindowFull(days, addDays(asOf, -config.cpaRecentDays), config.cpaBaselineDays);
+    if (
+      on('cpa_spike') &&
+      (kind === 'sales' || kind === 'leads') &&
+      recentW.conversions >= config.minConversions &&
+      baseW.conversions >= config.minConversions &&
+      recentW.spend >= config.minSpend * config.cpaRecentDays
+    ) {
+      const cpa = recentW.spend / recentW.conversions;
+      const baseCpa = baseW.spend / baseW.conversions;
+      const change = cpa / baseCpa - 1;
       if (change > config.cpaSpikePct) {
-        const finite = Number.isFinite(cpa);
         out.push({
           ...base,
-          id: `cpa_spike:${c.id}:${date}`,
+          id: `cpa_spike:${c.id}:${asOf}`,
           type: 'cpa_spike',
-          severity: !finite || change >= 0.6 ? 'high' : 'medium',
-          date,
-          ...(finite
-            ? texts(
-                msg('anomalyMsg.cpaSpike.title', { pct: pct(change) }),
-                msg('anomalyMsg.cpaSpike.detail', { from: fmtMoney2(prevCpa), to: fmtMoney2(cpa), date }),
-              )
-            : texts(
-                msg('anomalyMsg.zeroConv.title'),
-                msg('anomalyMsg.zeroConv.detail', { spend: fmtMoney(today.spend), date }),
-              )),
-          current: finite ? cpa : today.spend,
-          baseline: prevCpa,
+          severity: change >= 0.6 ? 'high' : 'medium',
+          date: asOf,
+          ...texts(
+            msg('anomalyMsg.cpaSpike.titleWindow', { pct: pct(change), base: config.cpaBaselineDays }),
+            msg('anomalyMsg.cpaSpike.window', {
+              from: fmtMoney2(baseCpa),
+              to: fmtMoney2(cpa),
+              recent: config.cpaRecentDays,
+              base: config.cpaBaselineDays,
+              conv: recentW.conversions,
+            }),
+          ),
+          current: cpa,
+          baseline: baseCpa,
         });
       }
     }
@@ -145,7 +170,7 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
     // 2. ROAS drop, recent window vs baseline window
     const recent = sumWindow(days, asOf, config.roasRecentDays);
     const baseline = sumWindow(days, addDays(asOf, -config.roasRecentDays), config.roasBaselineDays);
-    if (recent.spend >= config.minSpend * config.roasRecentDays && baseline.roas > 0) {
+    if (on('roas_drop') && kind === 'sales' && recent.spend >= config.minSpend * config.roasRecentDays && baseline.roas > 0) {
       const drop = 1 - recent.roas / baseline.roas;
       if (drop > config.roasDropPct) {
         out.push({
@@ -171,7 +196,7 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
 
     // 3. Spend stopped
     const spendOn = (d: ISODate) => (days.get(d) ?? EMPTY).spend;
-    if (spendOn(asOf) < 1) {
+    if (on('spend_stopped') && spendOn(asOf) < 1) {
       let streak = 0;
       while (streak < 30 && spendOn(addDays(asOf, -streak)) < 1) streak++;
       const before = sumWindow(days, addDays(asOf, -streak), 7);
@@ -200,19 +225,20 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
 
     // 4. Frequency above cap
     const last = days.get(asOf);
-    if (last && last.impressions > 0 && last.frequency > config.frequencyMax) {
+    const cap = audienceType(c) === 'retargeting' ? config.freqCapRetargeting : config.freqCapProspecting;
+    if (on('high_frequency') && last && last.impressions > 0 && last.frequency > cap) {
       out.push({
         ...base,
         id: `high_frequency:${c.id}:${asOf}`,
         type: 'high_frequency',
-        severity: last.frequency > config.frequencyMax * 1.25 ? 'high' : 'medium',
+        severity: last.frequency > cap * 1.25 ? 'high' : 'medium',
         date: asOf,
         ...texts(
           msg('anomalyMsg.freq.title', { freq: last.frequency.toFixed(1) }),
-          msg('anomalyMsg.freq.detail', { max: config.frequencyMax }),
+          msg(audienceType(c) === 'retargeting' ? 'anomalyMsg.freq.detailRtg' : 'anomalyMsg.freq.detail', { max: cap }),
         ),
         current: last.frequency,
-        baseline: config.frequencyMax,
+        baseline: cap,
       });
     }
   }
@@ -230,7 +256,7 @@ export function detectAnomalies(input: AnomalyInput, config: AnomalyConfig = DEF
     const spendByDate = new Map<string, number>();
     for (const r of campaignDaily) if (ids.has(r.campaignId)) spendByDate.set(r.date, (spendByDate.get(r.date) ?? 0) + r.spend);
     const spendOn = (d: ISODate) => spendByDate.get(d) ?? 0;
-    if (spendOn(asOf) >= 1) continue;
+    if (!on('account_stopped') || spendOn(asOf) >= 1) continue;
     let streak = 0;
     while (streak < 30 && spendOn(addDays(asOf, -streak)) < 1) streak++;
     if (streak >= 30) continue;

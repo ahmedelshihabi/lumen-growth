@@ -76,3 +76,17 @@ export function computePacing(
     recommendedDaily: daysRemaining > 0 ? Math.max(0, (budget - mtdSpend) / daysRemaining) : 0,
   };
 }
+
+/**
+ * What to do about pacing, given how the campaign performs (verdict from evaluate.ts).
+ * Pacing alone would say "cut" to every over-pacer; a campaign beating its goal should get
+ * more plan, not less. The Pacing page and the recommendations both use this.
+ */
+export type PacingAdvice = 'raise_plan' | 'reduce' | 'increase' | 'hold' | 'none';
+
+export function pacingAdvice(p: PacingResult, verdict: import('./evaluate').Verdict | null): PacingAdvice {
+  if (p.status === 'paused' || p.monthlyBudget <= 0 || p.daysRemaining <= 0) return 'none';
+  if (p.status === 'over') return verdict === 'scale' ? 'raise_plan' : verdict === null ? 'hold' : 'reduce';
+  if (p.status === 'under') return verdict === 'scale' ? 'increase' : 'hold';
+  return 'none';
+}
